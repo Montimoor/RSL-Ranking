@@ -2,9 +2,20 @@ name: RSL Ranglisten
 
 on:
   schedule:
-    # Montags 06:00 UTC (im Sommer 08:00, im Winter 07:00 deutscher Zeit)
-    - cron: '0 6 * * 1'
-  workflow_dispatch:        # erlaubt den manuellen Start über den Actions-Tab
+    # Montag bis Samstag um 05:00 UTC = 06:00 deutscher Winterzeit, 07:00 Sommerzeit.
+    # Montag: volle Rechnung mit neuer Wochenrangliste.
+    # Dienstag bis Samstag: nur die Tagesschlusskurse auffrischen.
+    - cron: '0 5 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      modus:
+        description: 'Was soll laufen?'
+        type: choice
+        default: auto
+        options:
+          - auto
+          - voll
+          - kurse
 
 permissions:
   contents: write
@@ -16,7 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -28,8 +39,23 @@ jobs:
       - name: Pakete installieren
         run: pip install -r requirements.txt
 
+      - name: Modus bestimmen
+        id: modus
+        run: |
+          WAHL="${{ github.event.inputs.modus }}"
+          if [ -z "$WAHL" ] || [ "$WAHL" = "auto" ]; then
+            if [ "$(date -u +%u)" = "1" ]; then WAHL="voll"; else WAHL="kurse"; fi
+          fi
+          echo "wahl=$WAHL" >> "$GITHUB_OUTPUT"
+          echo "Modus: $WAHL"
+
       - name: Ranglisten berechnen
+        if: steps.modus.outputs.wahl == 'voll'
         run: python scripts/build_rankings.py
+
+      - name: Kurse auffrischen
+        if: steps.modus.outputs.wahl == 'kurse'
+        run: python scripts/build_rankings.py --prices-only
 
       - name: Ergebnis committen
         run: |
@@ -37,8 +63,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/data
           if git diff --staged --quiet; then
-            echo "Keine Änderungen."
+            echo "Keine Aenderungen."
           else
-            git commit -m "RSL-Ranglisten $(date -u +%Y-%m-%d)"
+            git commit -m "RSL ${{ steps.modus.outputs.wahl }} $(date -u +%Y-%m-%d)"
             git push
           fi
