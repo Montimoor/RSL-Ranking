@@ -4,10 +4,15 @@ Baut die statischen RSL-Ranglisten für die Website.
 Lädt zwei Jahre Wochenkurse von Yahoo Finance, berechnet RSL = Kurs / SMA(26 Wochen)
 und die Ränge für JEDE Woche und schreibt pro Index eine JSON-Datei nach docs/data/.
 
+Zusaetzlich wird docs/data/prices.json geschrieben: der letzte Tagesschlusskurs
+je Aktie. Dieser Wert dient NUR der Anzeige - die RSL-Berechnung und alle
+Raenge bleiben unveraendert auf Wochenbasis (Levy).
+
 Aufruf:
-  python scripts/build_rankings.py                 # alle Indizes
+  python scripts/build_rankings.py                 # alle Indizes, volle Rechnung
   python scripts/build_rankings.py --index DAX     # nur einer
   python scripts/build_rankings.py --weeks 78      # mehr Historie behalten
+  python scripts/build_rankings.py --prices-only   # nur Tagesschlusskurse auffrischen
 
 Schlägt ein Index fehl (Yahoo blockt, Netzwerk weg), bleibt seine bisherige
 JSON-Datei unverändert stehen. Die Seite zeigt dann die Daten der Vorwoche.
@@ -52,15 +57,42 @@ def download(tickers):
     raise RuntimeError(last or "Download fehlgeschlagen.")
 
 
-def close_frame(data, tickers):
-    """Close-Spalten aus der yfinance-Antwort holen (wie in rsl_core)."""
+def download_daily(tickers):
+    """Letzte Tageskurse laden (nur fuer die Anzeige des aktuellen Kurses)."""
+    import yfinance as yf
+    last = None
+    for n in range(1, RETRIES + 1):
+        try:
+            d = yf.download(tickers, period="10d", interval="1d", auto_adjust=True,
+                            progress=False, threads=True, timeout=60)
+            if d is not None and not d.empty:
+                return d
+            last = "Leere Antwort von Yahoo."
+        except Exception as e:
+            last = str(e)
+        if n < RETRIES:
+            print(f"    Versuch {n} fehlgeschlagen ({last}) - neuer Versuch in 20s")
+            time.sleep(20)
+    raise RuntimeError(last or "Download fehlgeschlagen.")
+
+
+def close_frame(data, tickers, fill=True):
+    """Close-Spalten aus der yfinance-Antwort holen (wie in rsl_core).
+
+    fill=True fuellt Luecken vorwaerts - richtig fuer die Wochenreihe der
+    RSL-Rechnung. fill=False laesst Luecken stehen, damit ein Tageskurs nicht
+    faelschlich das Datum eines Tages bekommt, an dem er gar nicht gehandelt wurde.
+    """
     if isinstance(data.columns, pd.MultiIndex):
         if 'Close' not in data.columns.get_level_values(0):
             raise RuntimeError("Keine Close-Daten in der Antwort.")
-        return data['Close'].dropna(axis=1, how='all').ffill()
+        c = data['Close'].dropna(axis=1, how='all')
+        return c.ffill() if fill else c
     if 'Close' not in data.columns:
         raise RuntimeError("Keine Close-Daten.")
-    c = data[['Close']].ffill()
+    c = data[['Close']]
+    if fill:
+        c = c.ffill()
     c.columns = tickers[:1]
     return c
 
@@ -122,14 +154,75 @@ def build_index(index_name, weeks):
     }
 
 
+def build_prices(names):
+    """Schreibt docs/data/prices.json mit dem letzten Tagesschlusskurs je Aktie.
+
+    Reine Anzeigegroesse. Schlaegt ein Index fehl, bleiben seine bisherigen
+    Kurse aus der alten Datei erhalten.
+    """
+    path = OUT / 'prices.json'
+    prices = {}
+    if path.exists():
+        try:
+            prices = json.loads(path.read_text(encoding='utf-8')).get('prices', {})
+        except Exception:
+            prices = {}
+
+    ok, failed = [], []
+    for name in names:
+        if name not in INDEX_DEFS:
+            continue
+        print(f"\n[Kurse {name}]")
+        try:
+            tickers, _ = fetch_index_tickers(name)
+            if not tickers:
+                raise RuntimeError("Keine Ticker gefunden.")
+            # fill=False: jeder Kurs behaelt das Datum, an dem er wirklich entstand
+            close = close_frame(download_daily(tickers), tickers, fill=False)
+            n, tage = 0, set()
+            for t in close.columns:
+                col = close[t].dropna()
+                if col.empty:
+                    continue
+                prices[t] = [round(float(col.iloc[-1]), 4), col.index[-1].strftime('%Y-%m-%d')]
+                tage.add(prices[t][1])
+                n += 1
+            if n == 0:
+                raise RuntimeError("Keine Kurse in der Antwort.")
+            print(f"  {n} Kurse, letzter Handelstag {max(tage)}"
+                  + (f" (abweichend bei einzelnen Werten, frueheste: {min(tage)})" if len(tage) > 1 else ""))
+            ok.append(name)
+        except Exception as e:
+            print(f"  FEHLER: {e}")
+            failed.append(name)
+
+    if not prices:
+        print("\nKeine Kurse erhalten - prices.json bleibt unveraendert.")
+        return 1
+
+    path.write_text(json.dumps({
+        'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
+        'prices': prices,
+    }, separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
+    print(f"\nKurse geschrieben: {len(prices)} Aktien ({path.stat().st_size / 1024:.0f} KB)"
+          + (f", fehlgeschlagen: {', '.join(failed)}" if failed else "."))
+    return 0 if ok else 1
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--index', action='append', help="nur diese Indizes (mehrfach möglich)")
     ap.add_argument('--weeks', type=int, default=WEEKS_DEFAULT)
+    ap.add_argument('--prices-only', action='store_true',
+                    help="nur die Tagesschlusskurse auffrischen, Raenge unveraendert lassen")
     args = ap.parse_args()
 
     names = args.index or list(INDEX_DEFS.keys())
     OUT.mkdir(parents=True, exist_ok=True)
+
+    if args.prices_only:
+        return build_prices(names)
+
     entries, failed = [], []
 
     for name in names:
@@ -161,6 +254,13 @@ def main():
     }, separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
 
     print(f"\nFertig. {len(entries)} Indizes im Manifest" + (f", fehlgeschlagen: {', '.join(failed)}" if failed else "."))
+
+    # Aktuelle Tagesschlusskurse gleich mitnehmen (reine Anzeige)
+    try:
+        build_prices(names)
+    except Exception as e:
+        print(f"Kurse konnten nicht aktualisiert werden: {e}")
+
     return 0
 
 
