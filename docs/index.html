@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#141e2a">
+<title>RSL Ranking</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<style>
+:root{
+  --bg:#0f1923; --card:#1a2634; --inp:#0d1520; --acc:#00d4aa; --acd:#00a888;
+  --red:#ff4757; --org:#ffa502; --blu:#3498db;
+  --tp:#e8edf2; --ts:#8899aa; --td:#6a7c8e; --brd:#2a3a4a; --hdr:#141e2a;
+  --re:#1a2634; --ro:#1e2d3d;
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --r:6px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tp);font-family:var(--font);font-size:14px;line-height:1.45}
+body{padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pos{color:var(--acc)} .neg{color:var(--red)} .dim{color:var(--ts)} .faint{color:var(--td)}
+.hidden{display:none!important}
+
+header{background:var(--hdr);border-bottom:1px solid var(--brd);padding:calc(10px + env(safe-area-inset-top,0px)) 20px 10px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+.brand{font-weight:700;font-size:17px;color:var(--acc);margin-right:auto;white-space:nowrap}
+.hctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+select,input[type=search],input[type=text]{background:var(--inp);border:1px solid var(--brd);border-radius:var(--r);padding:7px 10px;min-height:36px;max-width:100%}
+select:focus,input:focus{border-color:var(--acc);outline:none}
+.btn{border:0;border-radius:var(--r);padding:8px 14px;min-height:36px;cursor:pointer;font-weight:600;font-size:13px;color:#fff;background:var(--acd)}
+.btn.ghost{background:transparent;color:var(--ts);border:1px solid var(--brd)}
+main{padding:14px 20px 28px;max-width:1400px;margin:0 auto}
+
+.demo{background:#3a2d10;border:1px solid var(--org);color:var(--org);border-radius:var(--r);padding:8px 12px;margin-bottom:12px;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.stat{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);padding:10px 14px;min-width:0}
+.stat .t{color:var(--ts);font-size:12px}
+.stat .v{font-size:20px;font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.stat .s{color:var(--td);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--brd);margin-bottom:12px}
+nav.tabs button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ts);padding:10px 16px;cursor:pointer;font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px}
+nav.tabs button[aria-selected=true]{color:var(--tp);border-bottom-color:var(--acc)}
+nav.tabs .ic{font-size:15px}
+
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.toolbar .grow{flex:1;min-width:140px}
+.note{color:var(--td);font-size:12px;margin:8px 2px}
+
+.tw{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);overflow:auto;max-height:calc(100vh - 320px);min-height:180px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{position:sticky;top:0;background:var(--hdr);color:var(--acc);font-weight:600;text-align:left;padding:9px 10px;white-space:nowrap;cursor:pointer;user-select:none;z-index:1;border-bottom:1px solid var(--brd)}
+thead th.r,td.r{text-align:right}
+thead th.nosort{cursor:default}
+thead th[aria-sort=ascending]::after{content:" ▲";font-size:9px}
+thead th[aria-sort=descending]::after{content:" ▼";font-size:9px}
+tbody tr:nth-child(odd){background:var(--re)} tbody tr:nth-child(even){background:var(--ro)}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:#243548}
+td{padding:7px 10px;white-space:nowrap;font-variant-numeric:tabular-nums}
+td .tk{font-weight:700}
+.empty{padding:40px 20px;text-align:center;color:var(--ts)}
+.zonebar{display:inline-block;width:52px;height:6px;background:var(--inp);border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:8px}
+.zonebar i{display:block;height:100%}
+
+.det-head{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:10px}
+.det-head .big{font-size:26px;font-weight:700;color:var(--acc);line-height:1}
+.det-head .nm{color:var(--ts);font-size:13px;margin-top:4px}
+.det-head .kv{display:flex;gap:18px;flex-wrap:wrap;color:var(--ts);font-variant-numeric:tabular-nums}
+.det-head .kv b{color:var(--tp);font-weight:600;display:block;font-size:16px}
+.det-head .zone{margin-left:auto;font-weight:700}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.chart{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);padding:10px 14px}
+.chart .t{color:var(--ts);font-size:12px;margin-bottom:4px;display:flex;justify-content:space-between}
+.chart svg{width:100%;height:140px;display:block}
+.chart text{fill:var(--td);font-size:10px;font-family:var(--font)}
+
+@media (max-width:760px){
+  html,body{font-size:15px}
+  header{padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;gap:8px}
+  .brand{font-size:15px;width:100%}
+  .hctl{width:100%;flex-wrap:nowrap} .hctl select{flex:1;min-width:0}
+  main{padding:10px 10px calc(84px + env(safe-area-inset-bottom,0px))}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .stat{padding:8px 10px} .stat .v{font-size:17px}
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;margin:0;background:var(--hdr);border-top:1px solid var(--brd);border-bottom:0;z-index:30;padding:0 0 env(safe-area-inset-bottom,0px);gap:0}
+  nav.tabs button{flex:1;flex-direction:column;gap:2px;padding:8px 2px 9px;font-size:11px;border-bottom:0;border-top:2px solid transparent}
+  nav.tabs button[aria-selected=true]{border-top-color:var(--acc)}
+  nav.tabs .ic{font-size:19px}
+  .tw{max-height:none;border:0;background:transparent;overflow:visible}
+  table,tbody,tr,td{display:block;width:100%}
+  thead{display:none}
+  tbody tr{border:1px solid var(--brd);border-radius:var(--r);margin-bottom:8px;padding:8px 12px;background:var(--card)!important;display:flex;flex-direction:column}
+  td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 0;white-space:normal;text-align:right!important}
+  td::before{content:attr(data-label);color:var(--ts);font-size:13px;text-align:left}
+  td.head{order:-1;font-size:16px;padding-bottom:6px;margin-bottom:4px;border-bottom:1px solid var(--brd);justify-content:flex-start;text-align:left!important}
+  td.head::before{content:none}
+  td.mhide{display:none}
+  td.empty{display:block;text-align:center!important}
+  td.empty::before{content:none}
+  .charts{grid-template-columns:1fr}
+  .det-head .zone{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">📈 RSL Ranking</div>
+  <div class="hctl">
+    <select id="idx" aria-label="Index"></select>
+    <select id="week" aria-label="Woche"></select>
+  </div>
+</header>
+
+<main>
+  <div id="demoBox" class="demo hidden"></div>
+  <section class="stats" id="stats"></section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="rk" aria-selected="true"><span class="ic">📊</span>Rangliste</button>
+    <button role="tab" data-tab="mom" aria-selected="false"><span class="ic">🚀</span>Momentum</button>
+    <button role="tab" data-tab="det" aria-selected="false"><span class="ic">🔎</span>Detail</button>
+  </nav>
+
+  <section id="tab-rk" role="tabpanel">
+    <div class="toolbar">
+      <input type="search" id="q" class="grow" placeholder="🔍 Ticker oder Name" aria-label="Suche">
+      <select id="filter" aria-label="Filter">
+        <option value="zone" selected>Kaufzone (obere 25 %)</option>
+        <option value="50">Top 50</option>
+        <option value="all">Alle</option>
+        <option value="weak">Unterhalb der Kaufzone</option>
+      </select>
+    </div>
+    <div class="tw"><table id="tblRk"></table></div>
+    <p class="note" id="rkStatus"></p>
+  </section>
+
+  <section id="tab-mom" role="tabpanel" class="hidden">
+    <p class="note" style="margin-top:0">Größte Rang-Verbesserung über 4 Wochen (mindestens +10 Ränge).</p>
+    <div class="tw"><table id="tblMom"></table></div>
+  </section>
+
+  <section id="tab-det" role="tabpanel" class="hidden">
+    <form class="toolbar" id="detForm">
+      <input type="text" id="detInput" class="grow" style="max-width:240px" placeholder="Ticker, z.B. SAP.DE" autocomplete="off" autocapitalize="characters" aria-label="Ticker">
+      <button class="btn" type="submit">Laden</button>
+    </form>
+    <div id="detBody"><div class="empty">Ticker eingeben oder in der Rangliste auf eine Aktie tippen.</div></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const S = {manifest: null, slug: null, data: null, week: -1, tab: 'rk', sort: {}, cache: {}};
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf = (v, d = 0) => v == null ? '-' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+const money = (v, d = 2) => v == null ? '-' : '$' + nf(v, d);
+const chg = v => v == null ? '<span class="faint">-</span>' : v > 0 ? `<span class="pos">↑${v}</span>` : v < 0 ? `<span class="neg">↓${Math.abs(v)}</span>` : '<span class="dim">→</span>';
+const isMobile = () => innerWidth <= 760;
+
+async function loadJSON(path) {
+  if (window.__DEMO__) {
+    const key = path.replace('data/', '').replace('.json', '');
+    const d = window.__DEMO__[key];
+    if (!d) throw new Error('keine Demo-Daten für ' + key);
+    return JSON.parse(JSON.stringify(d));
+  }
+  const res = await fetch(path, {cache: 'no-cache'});
+  if (!res.ok) throw new Error(path + ': ' + res.status);
+  return res.json();
+}
+
+// ---------- Tabelle ----------
+function table(id, cols, rows, {onRow, empty, rerender} = {}) {
+  const el = document.getElementById(id), st = S.sort[id];
+  let data = rows.slice();
+  if (st) {
+    const c = cols.find(c => c.k === st.k), val = c.v || (r => r[c.k]);
+    data.sort((a, b) => {
+      let x = val(a), y = val(b);
+      if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+      const res = typeof x === 'string' ? x.localeCompare(y, 'de') : x - y;
+      return st.dir === 'asc' ? res : -res;
+    });
+  }
+  const th = cols.map(c => `<th class="${c.r ? 'r' : ''} ${c.ns ? 'nosort' : ''}" data-k="${c.k}"
+    ${st && st.k === c.k ? `aria-sort="${st.dir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${c.l}</th>`).join('');
+  if (!data.length) {
+    el.innerHTML = `<thead><tr>${th}</tr></thead><tbody><tr><td colspan="${cols.length}" class="empty">${empty || 'Keine Einträge.'}</td></tr></tbody>`;
+    return;
+  }
+  el.innerHTML = `<thead><tr>${th}</tr></thead><tbody>` + data.map((r, i) =>
+    `<tr data-i="${i}" class="${onRow ? 'click' : ''}">` + cols.map(c =>
+      `<td data-label="${esc(c.l)}" class="${c.r ? 'r ' : ''}${c.head ? 'head ' : ''}${c.mh ? 'mhide' : ''}">${c.f ? c.f(r) : esc(r[c.k] ?? '-')}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  $$('th', el).forEach(h => {
+    if (h.classList.contains('nosort')) return;
+    h.onclick = () => {
+      const k = h.dataset.k, cur = S.sort[id];
+      S.sort[id] = {k, dir: cur && cur.k === k && cur.dir === 'desc' ? 'asc' : (cur && cur.k === k ? 'desc' : (cols.find(c => c.k === k).r ? 'desc' : 'asc'))};
+      rerender ? rerender() : table(id, cols, rows, {onRow, empty});
+    };
+  });
+  if (onRow) $$('tbody tr', el).forEach(tr => tr.onclick = () => onRow(data[+tr.dataset.i]));
+}
+
+// ---------- Daten aufbereiten ----------
+function rowsFor(i) {
+  const d = S.data, out = [];
+  for (const [t, v] of Object.entries(d.tickers)) {
+    const r = v.r[i];
+    if (r == null) continue;
+    const prev = k => (i - k >= 0 && v.r[i - k] != null) ? v.r[i - k] - r : null;
+    out.push({rank: r, ticker: t, name: v.n, sector: v.s, close: v.c[i], rsl: v.v[i],
+              sma: v.c[i] && v.v[i] ? v.c[i] / v.v[i] : null, c1: prev(1), c4: prev(4)});
+  }
+  out.sort((a, b) => a.rank - b.rank);
+  return out;
+}
+const zoneSize = i => Math.max(1, Math.round(S.data.totals[i] * (S.data.top_pct || 0.25)));
+
+function zoneBar(rank, total) {
+  const z = zoneSize(S.week), w = Math.min(rank / Math.max(total, 1), 1) * 100;
+  const col = rank <= z ? 'var(--acc)' : 'var(--red)';
+  return `<span class="zonebar" aria-hidden="true"><i style="width:${w}%;background:${col}"></i></span><span class="${rank <= z ? '' : 'neg'}">${rank}</span>`;
+}
+
+// ---------- Rendern ----------
+function renderStats() {
+  const i = S.week, d = S.data, rows = S.rows, z = zoneSize(i);
+  const up = rows.filter(r => r.rsl > 1).length;
+  const card = (t, v, s) => `<div class="stat"><div class="t">${t}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $('#stats').innerHTML =
+    card('Stand', d.dates[i], `${d.dates.length} Wochen · ${esc(d.index)}`) +
+    card('Aktien', d.totals[i], esc(d.description)) +
+    card('Kaufzone', 'Rang 1–' + z, `obere ${Math.round((d.top_pct || .25) * 100)} %`) +
+    card('RSL über 1', up, `${Math.round(up / rows.length * 100)} % der Aktien`);
+}
+
+function renderRk() {
+  const f = $('#filter').value, s = $('#q').value.trim().toUpperCase(), z = zoneSize(S.week);
+  let rows = S.rows;
+  if (f === 'zone') rows = rows.filter(r => r.rank <= z);
+  else if (f === '50') rows = rows.slice(0, 50);
+  else if (f === 'weak') rows = rows.filter(r => r.rank > z);
+  if (s) rows = rows.filter(r => r.ticker.includes(s) || r.name.toUpperCase().includes(s));
+  table('tblRk', [
+    {k: 'rank', l: 'Rang', r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
+    {k: 'ticker', l: 'Ticker', head: 1, f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
+    {k: 'name', l: 'Name', mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
+    {k: 'close', l: 'Kurs', r: 1, f: r => money(r.close)},
+    {k: 'sma', l: 'SMA-26', r: 1, mh: 1, f: r => money(r.sma)},
+    {k: 'rsl', l: 'RSL', r: 1, f: r => `<span class="${r.rsl >= 1 ? 'pos' : ''}">${nf(r.rsl, 4)}</span>`},
+    {k: 'c1', l: 'Δ1W', r: 1, f: r => chg(r.c1)},
+    {k: 'c4', l: 'Δ4W', r: 1, f: r => chg(r.c4)},
+  ], rows, {onRow: r => openDetail(r.ticker), rerender: renderRk, empty: 'Keine Treffer.'});
+  $('#rkStatus').textContent = `${rows.length} von ${S.rows.length} Aktien · Kaufzone = Rang 1–${z}`;
+}
+
+function renderMom() {
+  const rows = S.rows.filter(r => r.c4 != null && r.c4 >= 10).sort((a, b) => b.c4 - a.c4);
+  table('tblMom', [
+    {k: 'rank', l: 'Rang', r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
+    {k: 'ticker', l: 'Ticker', head: 1, f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
+    {k: 'name', l: 'Name', mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
+    {k: 'rsl', l: 'RSL', r: 1, f: r => nf(r.rsl, 4)},
+    {k: 'c4', l: 'Δ 4W', r: 1, f: r => chg(r.c4)},
+    {k: 'c1', l: 'Δ 1W', r: 1, f: r => chg(r.c1)},
+    {k: 'close', l: 'Kurs', r: 1, f: r => money(r.close)},
+  ], rows, {onRow: r => openDetail(r.ticker), rerender: renderMom,
+    empty: 'Aktuell keine Aktie mit mindestens +10 Rängen in 4 Wochen.'});
+}
+
+function openDetail(t) { $('#detInput').value = t; showTab('det'); renderDet(); }
+
+function renderDet() {
+  const t = $('#detInput').value.trim().toUpperCase(), body = $('#detBody'), v = S.data.tickers[t];
+  if (!t) return;
+  if (!v) { body.innerHTML = `<div class="empty">Keine Daten für ${esc(t)} in ${esc(S.data.index)}.</div>`; return; }
+  const idx = [], ranks = [], closes = [];
+  S.data.dates.forEach((d, i) => { if (v.r[i] != null && i <= S.week) { idx.push(i); ranks.push(v.r[i]); closes.push(v.c[i]); } });
+  const last = idx[idx.length - 1], z = zoneSize(S.week), inZone = v.r[last] <= z;
+  const hist = idx.map(i => ({date: S.data.dates[i], rank: v.r[i], rsl: v.v[i], close: v.c[i]}));
+  body.innerHTML = `
+    <div class="det-head">
+      <div><div class="big">${esc(t)}</div><div class="nm">${esc(v.n)}${v.s ? ' · ' + esc(v.s) : ''}</div></div>
+      <div class="kv">
+        <div>Rang<b>${v.r[last]} / ${S.data.totals[last]}</b></div>
+        <div>RSL<b>${nf(v.v[last], 4)}</b></div>
+        <div>Kurs<b>${money(v.c[last])}</b></div>
+        <div>Stand<b>${S.data.dates[last]}</b></div>
+      </div>
+      <div class="zone ${inZone ? 'pos' : 'neg'}">${inZone ? '✅ Kaufzone' : '⚠️ außerhalb'}</div>
+    </div>
+    <div class="charts">
+      <div class="chart"><div class="t"><span>Rang-Verlauf (oben = besser)</span><span>${hist.length} Wochen</span></div>
+        ${lineChart(ranks, hist, {invert: true, color: 'var(--acc)', thr: z})}</div>
+      <div class="chart"><div class="t"><span>Kurs-Verlauf</span><span>${hist.length} Wochen</span></div>
+        ${lineChart(closes, hist, {color: 'var(--blu)', fmt: x => '$' + nf(x, x < 100 ? 2 : 0)})}</div>
+    </div>
+    <div class="tw" style="max-height:420px"><table id="tblHist"></table></div>`;
+  table('tblHist', [
+    {k: 'date', l: 'Datum', head: 1},
+    {k: 'rank', l: 'Rang', r: 1, f: r => `<span class="${r.rank <= z ? '' : 'neg'}">${r.rank}</span>`},
+    {k: 'rsl', l: 'RSL', r: 1, f: r => nf(r.rsl, 4)},
+    {k: 'close', l: 'Kurs', r: 1, f: r => money(r.close)},
+  ], hist.slice().reverse());
+}
+
+function lineChart(vals, hist, {invert = false, color, thr, fmt = v => String(Math.round(v))} = {}) {
+  if (vals.length < 2) return '<div class="faint" style="padding:40px 0;text-align:center">Zu wenig Daten</div>';
+  const W = 600, H = 140, pl = 44, pr = 8, pt = 8, pb = 18;
+  let mn = Math.min(...vals), mx = Math.max(...vals);
+  if (thr != null && invert && mx >= thr * 0.6) { mn = Math.min(mn, thr); mx = Math.max(mx, thr); } else thr = null;
+  const rng = mx - mn || 1;
+  const x = i => pl + i / (vals.length - 1) * (W - pl - pr);
+  const y = v => invert ? pt + (v - mn) / rng * (H - pt - pb) : H - pb - (v - mn) / rng * (H - pt - pb);
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const top = invert ? mn : mx, bot = invert ? mx : mn;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Verlauf">
+    <line x1="${pl}" x2="${W - pr}" y1="${pt}" y2="${pt}" stroke="var(--brd)"/>
+    <line x1="${pl}" x2="${W - pr}" y1="${H - pb}" y2="${H - pb}" stroke="var(--brd)"/>
+    ${thr != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(thr)}" y2="${y(thr)}" stroke="var(--red)" stroke-dasharray="4 4" opacity=".7"/>
+      <text x="${W - pr}" y="${y(thr) - 4}" text-anchor="end" style="fill:var(--red)">${thr}</text>` : ''}
+    <path d="M${x(0)},${H - pb} L${pts.join(' L')} L${x(vals.length - 1)},${H - pb} Z" fill="${color}" opacity=".08"/>
+    <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(vals.length - 1)}" cy="${y(vals[vals.length - 1])}" r="3" fill="${color}"/>
+    <text x="${pl - 6}" y="${pt + 8}" text-anchor="end">${fmt(top)}</text>
+    <text x="${pl - 6}" y="${H - pb}" text-anchor="end">${fmt(bot)}</text>
+    <text x="${pl}" y="${H - 4}">${hist[0].date}</text>
+    <text x="${W - pr}" y="${H - 4}" text-anchor="end">${hist[hist.length - 1].date}</text>
+  </svg>`;
+}
+
+function showTab(tab) {
+  S.tab = tab;
+  $$('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+  $$('[role=tabpanel]').forEach(p => p.classList.toggle('hidden', p.id !== 'tab-' + tab));
+  scrollTo({top: 0});
+}
+
+function renderAll() {
+  S.rows = rowsFor(S.week);
+  renderStats(); renderRk(); renderMom();
+  if (S.tab === 'det' && $('#detInput').value) renderDet();
+}
+
+async function selectIndex(slug) {
+  S.slug = slug;
+  try {
+    S.data = S.cache[slug] || (S.cache[slug] = await loadJSON('data/' + slug + '.json'));
+  } catch (e) {
+    $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Daten konnten nicht geladen werden</div><div class="s">${esc(e.message)}</div></div>`;
+    return;
+  }
+  const w = $('#week');
+  w.innerHTML = S.data.dates.map((d, i) => `<option value="${i}">${d}</option>`).join('');
+  S.week = S.data.dates.length - 1;
+  w.value = S.week;
+  localStorage.setItem('rslsite_index', slug);
+  renderAll();
+}
+
+async function init() {
+  if (window.__DEMO__) {
+    $('#demoBox').classList.remove('hidden');
+    $('#demoBox').innerHTML = '⚠️ <b>Demo-Ansicht</b> mit erfundenen Kursen — zum Testen von Aussehen und Bedienung. Die echte Seite lädt jeden Montag die Yahoo-Daten.';
+  }
+  try { S.manifest = await loadJSON('data/manifest.json'); }
+  catch (e) { $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Keine Daten gefunden</div><div class="s">${esc(e.message)}</div></div>`; return; }
+  const saved = localStorage.getItem('rslsite_index');
+  const start = S.manifest.indices.find(i => i.slug === saved) || S.manifest.indices[0];
+  $('#idx').innerHTML = S.manifest.indices.map(i => `<option value="${i.slug}" ${i.slug === start.slug ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
+  await selectIndex(start.slug);
+}
+
+$('#idx').onchange = e => selectIndex(e.target.value);
+$('#week').onchange = e => { S.week = +e.target.value; renderAll(); };
+$('#q').oninput = renderRk;
+$('#filter').onchange = renderRk;
+$('#detForm').onsubmit = e => { e.preventDefault(); renderDet(); };
+$$('nav.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+let lastW = innerWidth;
+addEventListener('resize', () => { if ((lastW > 760) !== (innerWidth > 760) && S.data) renderAll(); lastW = innerWidth; });
+
+init();
+</script>
+</body>
+</html>
