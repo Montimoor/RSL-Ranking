@@ -50,6 +50,19 @@ nav.tabs .ic{font-size:15px}
 .toolbar .grow{flex:1;min-width:140px}
 .note{color:var(--td);font-size:12px;margin:8px 2px}
 
+.colwrap{position:relative}
+.colbox{position:absolute;right:0;top:calc(100% + 6px);z-index:40;background:var(--card);border:1px solid var(--brd);
+  border-radius:var(--r);padding:10px 12px;min-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.colbox h4{margin:0 0 8px;font-size:12px;color:var(--ts);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.colbox label{display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:13px;border-radius:4px}
+.colbox label:hover{background:var(--ro)}
+.colbox input[type=checkbox]{width:16px;height:16px;accent-color:var(--acc);margin:0}
+.colbox .sep{border-top:1px solid var(--brd);margin:8px 0 6px}
+.colbox .acts{display:flex;gap:6px;margin-top:8px}
+.colbox .acts .btn{flex:1;padding:6px 8px;font-size:12px;min-height:30px}
+a.tv{color:var(--blu);text-decoration:none;font-weight:600;white-space:nowrap}
+a.tv:hover{text-decoration:underline}
+
 .tw{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);overflow:auto;max-height:calc(100vh - 320px);min-height:180px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 thead th{position:sticky;top:0;background:var(--hdr);color:var(--acc);font-weight:600;text-align:left;padding:9px 10px;white-space:nowrap;cursor:pointer;user-select:none;z-index:1;border-bottom:1px solid var(--brd)}
@@ -136,13 +149,24 @@ td .tk{font-weight:700}
         <option value="all">Alle</option>
         <option value="weak">Unterhalb der Kaufzone</option>
       </select>
+      <span class="colwrap">
+        <button class="btn ghost" id="colBtn" type="button" aria-expanded="false">⚙ Spalten</button>
+        <div class="colbox hidden" id="colBox"></div>
+      </span>
     </div>
     <div class="tw"><table id="tblRk"></table></div>
     <p class="note" id="rkStatus"></p>
   </section>
 
   <section id="tab-mom" role="tabpanel" class="hidden">
-    <p class="note" style="margin-top:0">Größte Rang-Verbesserung über 4 Wochen (mindestens +10 Ränge).</p>
+    <div class="toolbar">
+      <select id="momBy" aria-label="Momentum-Kennzahl">
+        <option value="p13" selected>Stärkste Kursentwicklung über 1 Quartal</option>
+        <option value="p4">Stärkste Kursentwicklung über 1 Monat</option>
+        <option value="c4">Größte Rang-Verbesserung über 4 Wochen</option>
+      </select>
+    </div>
+    <p class="note" id="momNote" style="margin-top:0"></p>
     <div class="tw"><table id="tblMom"></table></div>
   </section>
 
@@ -159,13 +183,39 @@ td .tk{font-weight:700}
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const S = {manifest: null, slug: null, data: null, week: -1, tab: 'rk', sort: {}, cache: {}};
+const S = {manifest: null, slug: null, data: null, week: -1, tab: 'rk', sort: {}, cache: {},
+           cols: null, prices: null, pricesGen: null, cur: null};
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nf = (v, d = 0) => v == null ? '-' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
-const money = (v, d = 2) => v == null ? '-' : '$' + nf(v, d);
+// Währung richtet sich nach dem Index (Yahoo-Endung des Tickers)
+function currency(tickers) {
+  const t = Object.keys(tickers || {})[0] || '';
+  if (t.endsWith('.DE')) return {s: '€', d: 2};
+  if (t.endsWith('.KS')) return {s: '₩', d: 0};
+  if (t.endsWith('.T'))  return {s: '¥', d: 0};
+  return {s: '$', d: 2};
+}
+const money = (v, d) => v == null ? '-' : (S.cur ? S.cur.s : '$') + nf(v, d != null ? d : (S.cur ? S.cur.d : 2));
 const chg = v => v == null ? '<span class="faint">-</span>' : v > 0 ? `<span class="pos">↑${v}</span>` : v < 0 ? `<span class="neg">↓${Math.abs(v)}</span>` : '<span class="dim">→</span>';
 const isMobile = () => innerWidth <= 760;
+
+// Prozentwert farbig: +3,4 % / -1,2 %
+const pct = (v, d = 1) => v == null ? '<span class="faint">-</span>'
+  : `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim'}">${v > 0 ? '+' : ''}${nf(v, d)}&thinsp;%</span>`;
+
+// Yahoo-Ticker in ein TradingView-Symbol übersetzen.
+// Yahoo hängt die Börse als Endung an, TradingView schreibt sie davor.
+function tvSymbol(t) {
+  if (t.endsWith('.DE')) return 'XETR:' + t.slice(0, -3);      // Xetra (DAX, MDAX, TecDAX)
+  if (t.endsWith('.KS')) return 'KRX:'  + t.slice(0, -3);      // Korea (KOSPI)
+  if (t.endsWith('.T'))  return 'TSE:'  + t.slice(0, -2);      // Tokio (Nikkei)
+  return t.replace(/-/g, '.');                                 // USA: BRK-B -> BRK.B
+}
+const tvUrl = t => 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(tvSymbol(t));
+const tvLink = (t, label = '📈') =>
+  `<a class="tv" href="${tvUrl(t)}" target="_blank" rel="noopener noreferrer"
+      title="${esc(t)} in TradingView öffnen" onclick="event.stopPropagation()">${label}</a>`;
 
 async function loadJSON(path) {
   if (window.__DEMO__) {
@@ -214,13 +264,28 @@ function table(id, cols, rows, {onRow, empty, rerender} = {}) {
 
 // ---------- Daten aufbereiten ----------
 function rowsFor(i) {
-  const d = S.data, out = [];
+  const d = S.data, out = [], isLast = (i === d.dates.length - 1);
   for (const [t, v] of Object.entries(d.tickers)) {
     const r = v.r[i];
     if (r == null) continue;
+    // Rang-Veränderung gegenüber k Wochen davor
     const prev = k => (i - k >= 0 && v.r[i - k] != null) ? v.r[i - k] - r : null;
-    out.push({rank: r, ticker: t, name: v.n, sector: v.s, close: v.c[i], rsl: v.v[i],
-              sma: v.c[i] && v.v[i] ? v.c[i] / v.v[i] : null, c1: prev(1), c4: prev(4)});
+    // Kursentwicklung in Prozent gegenüber k Wochen davor
+    const perf = k => {
+      const a = v.c[i], b = i - k >= 0 ? v.c[i - k] : null;
+      return (a != null && b != null && b > 0) ? (a / b - 1) * 100 : null;
+    };
+    // Aktueller Tagesschlusskurs – nur sinnvoll für die jüngste Woche
+    const p = (isLast && S.prices) ? S.prices[t] : null;
+    const now = p ? p[0] : null;
+    out.push({
+      rank: r, ticker: t, name: v.n, sector: v.s, close: v.c[i], rsl: v.v[i],
+      sma: v.c[i] && v.v[i] ? v.c[i] / v.v[i] : null,
+      c1: prev(1), c4: prev(4),
+      p1: perf(1), p4: perf(4), p13: perf(13),
+      now: now, nowDate: p ? p[1] : null,
+      nowchg: (now != null && v.c[i] > 0) ? (now / v.c[i] - 1) * 100 : null,
+    });
   }
   out.sort((a, b) => a.rank - b.rank);
   return out;
@@ -245,6 +310,69 @@ function renderStats() {
     card('RSL über 1', up, `${Math.round(up / rows.length * 100)} % der Aktien`);
 }
 
+// ---------- Spaltenauswahl ----------
+// fix = immer sichtbar, alles andere lässt sich abwählen.
+const COL_DEFS = [
+  {k: 'rank',   l: 'Rang',      fix: 1, r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
+  {k: 'ticker', l: 'Ticker',    fix: 1, head: 1,
+   f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
+  {k: 'name',   l: 'Name',      mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
+  {k: 'close',  l: 'Kurs (Wo.)', r: 1, f: r => money(r.close)},
+  {k: 'now',    l: 'Aktuell',   r: 1, f: r => money(r.now)},
+  {k: 'nowchg', l: 'Δ aktuell', r: 1, f: r => pct(r.nowchg)},
+  {k: 'sma',    l: 'SMA-26',    r: 1, f: r => money(r.sma)},
+  {k: 'rsl',    l: 'RSL',       r: 1, f: r => `<span class="${r.rsl >= 1 ? 'pos' : ''}">${nf(r.rsl, 4)}</span>`},
+  {k: 'c1',     l: 'Rang Δ1W',  r: 1, f: r => chg(r.c1)},
+  {k: 'c4',     l: 'Rang Δ4W',  r: 1, f: r => chg(r.c4)},
+  {k: 'p1',     l: 'Kurs 1W',   r: 1, f: r => pct(r.p1)},
+  {k: 'p4',     l: 'Kurs 1M',   r: 1, f: r => pct(r.p4)},
+  {k: 'p13',    l: 'Kurs 1Q',   r: 1, f: r => pct(r.p13)},
+  {k: 'tv',     l: 'Chart',     r: 1, ns: 1,
+   f: r => tvLink(r.ticker, isMobile() ? '📈 TradingView' : '📈')},
+];
+const COL_DEFAULT = ['name', 'close', 'now', 'rsl', 'c1', 'c4', 'p1', 'p4', 'p13', 'tv'];
+
+function loadCols() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('rslsite_cols') || 'null');
+    if (Array.isArray(raw)) return new Set(raw.filter(k => COL_DEFS.some(c => c.k === k)));
+  } catch (e) { /* kaputter Eintrag – Standard nehmen */ }
+  return new Set(COL_DEFAULT);
+}
+function saveCols() {
+  try { localStorage.setItem('rslsite_cols', JSON.stringify([...S.cols])); } catch (e) {}
+}
+function activeCols() { return COL_DEFS.filter(c => c.fix || S.cols.has(c.k)); }
+
+function renderColBox() {
+  const box = $('#colBox');
+  box.innerHTML = '<h4>Spalten in der Tabelle</h4>' +
+    COL_DEFS.filter(c => !c.fix).map(c =>
+      `<label><input type="checkbox" data-c="${c.k}" ${S.cols.has(c.k) ? 'checked' : ''}>${esc(c.l)}</label>`).join('') +
+    '<div class="sep"></div><div class="acts">' +
+    '<button class="btn ghost" type="button" data-act="none">Keine</button>' +
+    '<button class="btn ghost" type="button" data-act="all">Alle</button>' +
+    '<button class="btn" type="button" data-act="def">Standard</button></div>';
+  $$('input[data-c]', box).forEach(i => i.onchange = () => {
+    i.checked ? S.cols.add(i.dataset.c) : S.cols.delete(i.dataset.c);
+    saveCols(); renderRk();
+  });
+  $$('button[data-act]', box).forEach(b => b.onclick = () => {
+    if (b.dataset.act === 'all') S.cols = new Set(COL_DEFS.filter(c => !c.fix).map(c => c.k));
+    else if (b.dataset.act === 'none') S.cols = new Set();
+    else S.cols = new Set(COL_DEFAULT);
+    saveCols(); renderColBox(); renderRk();
+  });
+}
+
+function toggleColBox(show) {
+  const box = $('#colBox'), btn = $('#colBtn');
+  const open = show != null ? show : box.classList.contains('hidden');
+  if (open) renderColBox();
+  box.classList.toggle('hidden', !open);
+  btn.setAttribute('aria-expanded', String(open));
+}
+
 function renderRk() {
   const f = $('#filter').value, s = $('#q').value.trim().toUpperCase(), z = zoneSize(S.week);
   let rows = S.rows;
@@ -252,31 +380,37 @@ function renderRk() {
   else if (f === '50') rows = rows.slice(0, 50);
   else if (f === 'weak') rows = rows.filter(r => r.rank > z);
   if (s) rows = rows.filter(r => r.ticker.includes(s) || r.name.toUpperCase().includes(s));
-  table('tblRk', [
-    {k: 'rank', l: 'Rang', r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
-    {k: 'ticker', l: 'Ticker', head: 1, f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
-    {k: 'name', l: 'Name', mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
-    {k: 'close', l: 'Kurs', r: 1, f: r => money(r.close)},
-    {k: 'sma', l: 'SMA-26', r: 1, mh: 1, f: r => money(r.sma)},
-    {k: 'rsl', l: 'RSL', r: 1, f: r => `<span class="${r.rsl >= 1 ? 'pos' : ''}">${nf(r.rsl, 4)}</span>`},
-    {k: 'c1', l: 'Δ1W', r: 1, f: r => chg(r.c1)},
-    {k: 'c4', l: 'Δ4W', r: 1, f: r => chg(r.c4)},
-  ], rows, {onRow: r => openDetail(r.ticker), rerender: renderRk, empty: 'Keine Treffer.'});
-  $('#rkStatus').textContent = `${rows.length} von ${S.rows.length} Aktien · Kaufzone = Rang 1–${z}`;
+  table('tblRk', activeCols(), rows,
+    {onRow: r => openDetail(r.ticker), rerender: renderRk, empty: 'Keine Treffer.'});
+  // Einzelne Werte können einen älteren Handelstag haben (Feiertag, Aussetzung).
+  const tage = S.rows.map(r => r.nowDate).filter(Boolean);
+  const pd = tage.length ? tage.reduce((a, b) => a > b ? a : b) : null;
+  $('#rkStatus').textContent = `${rows.length} von ${S.rows.length} Aktien · Kaufzone = Rang 1–${z}`
+    + (pd ? ` · Spalte „Aktuell" = Schlusskurs ${pd}` : '');
 }
 
 function renderMom() {
-  const rows = S.rows.filter(r => r.c4 != null && r.c4 >= 10).sort((a, b) => b.c4 - a.c4);
+  const by = $('#momBy').value;
+  const rows = S.rows.filter(r => r[by] != null && (by === 'c4' ? r[by] >= 10 : r[by] > 0))
+                     .sort((a, b) => b[by] - a[by]).slice(0, 50);
+  $('#momNote').textContent = by === 'c4'
+    ? 'Größte Rang-Verbesserung über 4 Wochen (mindestens +10 Ränge).'
+    : `Stärkste Kursentwicklung über ${by === 'p13' ? '13 Wochen (1 Quartal)' : '4 Wochen (1 Monat)'}, höchstens 50 Aktien.`;
   table('tblMom', [
     {k: 'rank', l: 'Rang', r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
     {k: 'ticker', l: 'Ticker', head: 1, f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
     {k: 'name', l: 'Name', mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
     {k: 'rsl', l: 'RSL', r: 1, f: r => nf(r.rsl, 4)},
-    {k: 'c4', l: 'Δ 4W', r: 1, f: r => chg(r.c4)},
-    {k: 'c1', l: 'Δ 1W', r: 1, f: r => chg(r.c1)},
-    {k: 'close', l: 'Kurs', r: 1, f: r => money(r.close)},
+    {k: 'c4', l: 'Rang Δ4W', r: 1, f: r => chg(r.c4)},
+    {k: 'c1', l: 'Rang Δ1W', r: 1, f: r => chg(r.c1)},
+    {k: 'p4', l: 'Kurs 1M', r: 1, f: r => pct(r.p4)},
+    {k: 'p13', l: 'Kurs 1Q', r: 1, f: r => pct(r.p13)},
+    {k: 'close', l: 'Kurs (Wo.)', r: 1, f: r => money(r.close)},
+    {k: 'now', l: 'Aktuell', r: 1, f: r => money(r.now)},
+    {k: 'tv', l: 'Chart', r: 1, ns: 1, f: r => tvLink(r.ticker)},
   ], rows, {onRow: r => openDetail(r.ticker), rerender: renderMom,
-    empty: 'Aktuell keine Aktie mit mindestens +10 Rängen in 4 Wochen.'});
+    empty: by === 'c4' ? 'Aktuell keine Aktie mit mindestens +10 Rängen in 4 Wochen.'
+                       : 'Aktuell keine Aktie mit positiver Kursentwicklung in diesem Zeitraum.'});
 }
 
 function openDetail(t) { $('#detInput').value = t; showTab('det'); renderDet(); }
@@ -289,22 +423,40 @@ function renderDet() {
   S.data.dates.forEach((d, i) => { if (v.r[i] != null && i <= S.week) { idx.push(i); ranks.push(v.r[i]); closes.push(v.c[i]); } });
   const last = idx[idx.length - 1], z = zoneSize(S.week), inZone = v.r[last] <= z;
   const hist = idx.map(i => ({date: S.data.dates[i], rank: v.r[i], rsl: v.v[i], close: v.c[i]}));
+  // Kursentwicklung über 1 Woche / 1 Monat (4 Wochen) / 1 Quartal (13 Wochen)
+  const perf = k => {
+    const a = v.c[last], b = last - k >= 0 ? v.c[last - k] : null;
+    return (a != null && b != null && b > 0) ? (a / b - 1) * 100 : null;
+  };
+  const isLast = (last === S.data.dates.length - 1);
+  const pr = (isLast && S.prices) ? S.prices[t] : null;
   body.innerHTML = `
     <div class="det-head">
-      <div><div class="big">${esc(t)}</div><div class="nm">${esc(v.n)}${v.s ? ' · ' + esc(v.s) : ''}</div></div>
+      <div><div class="big">${esc(t)}</div><div class="nm">${esc(v.n)}${v.s ? ' · ' + esc(v.s) : ''}</div>
+        <div style="margin-top:6px">${tvLink(t, '📈 In TradingView öffnen')}</div></div>
       <div class="kv">
         <div>Rang<b>${v.r[last]} / ${S.data.totals[last]}</b></div>
         <div>RSL<b>${nf(v.v[last], 4)}</b></div>
-        <div>Kurs<b>${money(v.c[last])}</b></div>
+        <div>Kurs (Wo.)<b>${money(v.c[last])}</b></div>
+        ${pr ? `<div>Aktuell<b>${money(pr[0])}</b><span class="faint" style="font-size:11px">${pr[1]}</span></div>` : ''}
         <div>Stand<b>${S.data.dates[last]}</b></div>
       </div>
       <div class="zone ${inZone ? 'pos' : 'neg'}">${inZone ? '✅ Kaufzone' : '⚠️ außerhalb'}</div>
+    </div>
+    <div class="det-head" style="gap:26px">
+      <div class="kv">
+        <div>Kurs 1 Woche<b>${pct(perf(1))}</b></div>
+        <div>Kurs 1 Monat<b>${pct(perf(4))}</b></div>
+        <div>Kurs 1 Quartal<b>${pct(perf(13))}</b></div>
+        <div>Rang Δ 1W<b>${chg(last - 1 >= 0 && v.r[last - 1] != null ? v.r[last - 1] - v.r[last] : null)}</b></div>
+        <div>Rang Δ 4W<b>${chg(last - 4 >= 0 && v.r[last - 4] != null ? v.r[last - 4] - v.r[last] : null)}</b></div>
+      </div>
     </div>
     <div class="charts">
       <div class="chart"><div class="t"><span>Rang-Verlauf (oben = besser)</span><span>${hist.length} Wochen</span></div>
         ${lineChart(ranks, hist, {invert: true, color: 'var(--acc)', thr: z})}</div>
       <div class="chart"><div class="t"><span>Kurs-Verlauf</span><span>${hist.length} Wochen</span></div>
-        ${lineChart(closes, hist, {color: 'var(--blu)', fmt: x => '$' + nf(x, x < 100 ? 2 : 0)})}</div>
+        ${lineChart(closes, hist, {color: 'var(--blu)', fmt: x => (S.cur ? S.cur.s : '$') + nf(x, x < 100 ? S.cur.d : 0)})}</div>
     </div>
     <div class="tw" style="max-height:420px"><table id="tblHist"></table></div>`;
   table('tblHist', [
@@ -361,6 +513,7 @@ async function selectIndex(slug) {
     $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Daten konnten nicht geladen werden</div><div class="s">${esc(e.message)}</div></div>`;
     return;
   }
+  S.cur = currency(S.data.tickers);
   const w = $('#week');
   w.innerHTML = S.data.dates.map((d, i) => `<option value="${i}">${d}</option>`).join('');
   S.week = S.data.dates.length - 1;
@@ -374,6 +527,10 @@ async function init() {
     $('#demoBox').classList.remove('hidden');
     $('#demoBox').innerHTML = '⚠️ <b>Demo-Ansicht</b> mit erfundenen Kursen — zum Testen von Aussehen und Bedienung. Die echte Seite lädt jeden Montag die Yahoo-Daten.';
   }
+  S.cols = loadCols();
+  // Tagesschlusskurse sind optional – fehlen sie, bleibt die Seite voll nutzbar.
+  try { const p = await loadJSON('data/prices.json'); S.prices = p.prices || null; S.pricesGen = p.generated; }
+  catch (e) { S.prices = null; }
   try { S.manifest = await loadJSON('data/manifest.json'); }
   catch (e) { $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Keine Daten gefunden</div><div class="s">${esc(e.message)}</div></div>`; return; }
   const saved = localStorage.getItem('rslsite_index');
@@ -382,10 +539,17 @@ async function init() {
   await selectIndex(start.slug);
 }
 
+$('#colBtn').onclick = e => { e.stopPropagation(); toggleColBox(); };
+document.addEventListener('click', e => {
+  if (!$('#colBox').classList.contains('hidden') && !e.target.closest('.colwrap')) toggleColBox(false);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape') toggleColBox(false); });
+
 $('#idx').onchange = e => selectIndex(e.target.value);
 $('#week').onchange = e => { S.week = +e.target.value; renderAll(); };
 $('#q').oninput = renderRk;
 $('#filter').onchange = renderRk;
+$('#momBy').onchange = renderMom;
 $('#detForm').onsubmit = e => { e.preventDefault(); renderDet(); };
 $$('nav.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 let lastW = innerWidth;
