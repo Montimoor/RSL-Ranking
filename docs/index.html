@@ -60,6 +60,10 @@ nav.tabs .ic{font-size:15px}
 .colbox .sep{border-top:1px solid var(--brd);margin:8px 0 6px}
 .colbox .acts{display:flex;gap:6px;margin-top:8px}
 .colbox .acts .btn{flex:1;padding:6px 8px;font-size:12px;min-height:30px}
+tr.top5 td{background:rgba(255,196,0,.11)}
+tr.top5:hover td{background:rgba(255,196,0,.18)}
+.star{color:#ffc400;font-weight:700;margin-right:3px}
+td .rk5{color:#ffc400;font-weight:700}
 a.tv{color:var(--blu);text-decoration:none;font-weight:600;white-space:nowrap}
 a.tv:hover{text-decoration:underline}
 
@@ -106,6 +110,7 @@ td .tk{font-weight:700}
   .tw{max-height:none;border:0;background:transparent;overflow:visible}
   table,tbody,tr,td{display:block;width:100%}
   thead{display:none}
+  tbody tr.top5{border-color:rgba(255,196,0,.55)!important}
   tbody tr{border:1px solid var(--brd);border-radius:var(--r);margin-bottom:8px;padding:8px 12px;background:var(--card)!important;display:flex;flex-direction:column}
   td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 0;white-space:normal;text-align:right!important}
   td::before{content:attr(data-label);color:var(--ts);font-size:13px;text-align:left}
@@ -249,7 +254,7 @@ function table(id, cols, rows, {onRow, empty, rerender} = {}) {
     return;
   }
   el.innerHTML = `<thead><tr>${th}</tr></thead><tbody>` + data.map((r, i) =>
-    `<tr data-i="${i}" class="${onRow ? 'click' : ''}">` + cols.map(c =>
+    `<tr data-i="${i}" class="${onRow ? 'click ' : ''}${r.rank <= 5 ? 'top5' : ''}">` + cols.map(c =>
       `<td data-label="${esc(c.l)}" class="${c.r ? 'r ' : ''}${c.head ? 'head ' : ''}${c.mh ? 'mhide' : ''}">${c.f ? c.f(r) : esc(r[c.k] ?? '-')}</td>`).join('') + '</tr>').join('') + '</tbody>';
   $$('th', el).forEach(h => {
     if (h.classList.contains('nosort')) return;
@@ -283,6 +288,7 @@ function rowsFor(i) {
       sma: v.c[i] && v.v[i] ? v.c[i] / v.v[i] : null,
       c1: prev(1), c4: prev(4),
       p1: perf(1), p4: perf(4), p13: perf(13),
+      g5: v.g5 != null ? v.g5 : null,
       now: now, nowDate: p ? p[1] : null,
       nowchg: (now != null && v.c[i] > 0) ? (now / v.c[i] - 1) * 100 : null,
     });
@@ -292,10 +298,11 @@ function rowsFor(i) {
 }
 const zoneSize = i => Math.max(1, Math.round(S.data.totals[i] * (S.data.top_pct || 0.25)));
 
-function zoneBar(rank, total) {
+function zoneBar(rank, total, top5) {
   const z = zoneSize(S.week), w = Math.min(rank / Math.max(total, 1), 1) * 100;
-  const col = rank <= z ? 'var(--acc)' : 'var(--red)';
-  return `<span class="zonebar" aria-hidden="true"><i style="width:${w}%;background:${col}"></i></span><span class="${rank <= z ? '' : 'neg'}">${rank}</span>`;
+  const col = top5 ? '#ffc400' : rank <= z ? 'var(--acc)' : 'var(--red)';
+  const cls = top5 ? 'rk5' : rank <= z ? '' : 'neg';
+  return `<span class="zonebar" aria-hidden="true"><i style="width:${w}%;background:${col}"></i></span><span class="${cls}">${rank}</span>`;
 }
 
 // ---------- Rendern ----------
@@ -313,7 +320,8 @@ function renderStats() {
 // ---------- Spaltenauswahl ----------
 // fix = immer sichtbar, alles andere lässt sich abwählen.
 const COL_DEFS = [
-  {k: 'rank',   l: 'Rang',      fix: 1, r: 1, f: r => zoneBar(r.rank, S.data.totals[S.week])},
+  {k: 'rank',   l: 'Rang',      fix: 1, r: 1,
+   f: r => (r.rank <= 5 ? '<span class="star">★</span>' : '') + zoneBar(r.rank, S.data.totals[S.week], r.rank <= 5)},
   {k: 'ticker', l: 'Ticker',    fix: 1, head: 1,
    f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
   {k: 'name',   l: 'Name',      mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
@@ -327,10 +335,11 @@ const COL_DEFS = [
   {k: 'p1',     l: 'Kurs 1W',   r: 1, f: r => pct(r.p1)},
   {k: 'p4',     l: 'Kurs 1M',   r: 1, f: r => pct(r.p4)},
   {k: 'p13',    l: 'Kurs 1Q',   r: 1, f: r => pct(r.p13)},
+  {k: 'g5',     l: 'Ø p.a. 5J', r: 1, f: r => pct(r.g5)},
   {k: 'tv',     l: 'Chart',     r: 1, ns: 1,
    f: r => tvLink(r.ticker, isMobile() ? '📈 TradingView' : '📈')},
 ];
-const COL_DEFAULT = ['name', 'close', 'now', 'rsl', 'c1', 'c4', 'p1', 'p4', 'p13', 'tv'];
+const COL_DEFAULT = ['name', 'close', 'now', 'rsl', 'c1', 'c4', 'p1', 'p4', 'p13', 'g5', 'tv'];
 
 function loadCols() {
   try {
@@ -342,7 +351,24 @@ function loadCols() {
 function saveCols() {
   try { localStorage.setItem('rslsite_cols', JSON.stringify([...S.cols])); } catch (e) {}
 }
-function activeCols() { return COL_DEFS.filter(c => c.fix || S.cols.has(c.k)); }
+// Tag.Monat. aus einem ISO-Datum
+const dm = iso => iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' : '';
+// Das echte Schlussdatum einer Woche. Yahoo datiert Wochenkerzen auf den Montag,
+// der Kurs darin ist der Wochenschluss – enddates hält den tatsächlichen Tag fest.
+const weekEnd = i => (S.data && S.data.enddates) ? S.data.enddates[i] : (S.data ? S.data.dates[i] : null);
+const priceDate = () => {
+  const t = (S.rows || []).map(r => r.nowDate).filter(Boolean);
+  return t.length ? t.reduce((a, b) => a > b ? a : b) : null;
+};
+
+function activeCols() {
+  const wk = weekEnd(S.week), pd = priceDate();
+  return COL_DEFS.filter(c => c.fix || S.cols.has(c.k)).map(c => {
+    if (c.k === 'close' && wk) return Object.assign({}, c, {l: 'Kurs ' + dm(wk)});
+    if (c.k === 'now' && pd)   return Object.assign({}, c, {l: 'Aktuell ' + dm(pd)});
+    return c;
+  });
+}
 
 function renderColBox() {
   const box = $('#colBox');
@@ -422,7 +448,7 @@ function renderDet() {
   const idx = [], ranks = [], closes = [];
   S.data.dates.forEach((d, i) => { if (v.r[i] != null && i <= S.week) { idx.push(i); ranks.push(v.r[i]); closes.push(v.c[i]); } });
   const last = idx[idx.length - 1], z = zoneSize(S.week), inZone = v.r[last] <= z;
-  const hist = idx.map(i => ({date: S.data.dates[i], rank: v.r[i], rsl: v.v[i], close: v.c[i]}));
+  const hist = idx.map(i => ({date: weekEnd(i) || S.data.dates[i], rank: v.r[i], rsl: v.v[i], close: v.c[i]}));
   // Kursentwicklung über 1 Woche / 1 Monat (4 Wochen) / 1 Quartal (13 Wochen)
   const perf = k => {
     const a = v.c[last], b = last - k >= 0 ? v.c[last - k] : null;
@@ -437,9 +463,9 @@ function renderDet() {
       <div class="kv">
         <div>Rang<b>${v.r[last]} / ${S.data.totals[last]}</b></div>
         <div>RSL<b>${nf(v.v[last], 4)}</b></div>
-        <div>Kurs (Wo.)<b>${money(v.c[last])}</b></div>
+        <div>Kurs (Wochenschluss)<b>${money(v.c[last])}</b><span class="faint" style="font-size:11px">${weekEnd(last) || S.data.dates[last]}</span></div>
         ${pr ? `<div>Aktuell<b>${money(pr[0])}</b><span class="faint" style="font-size:11px">${pr[1]}</span></div>` : ''}
-        <div>Stand<b>${S.data.dates[last]}</b></div>
+        <div>Woche ab<b>${S.data.dates[last]}</b></div>
       </div>
       <div class="zone ${inZone ? 'pos' : 'neg'}">${inZone ? '✅ Kaufzone' : '⚠️ außerhalb'}</div>
     </div>
@@ -448,6 +474,7 @@ function renderDet() {
         <div>Kurs 1 Woche<b>${pct(perf(1))}</b></div>
         <div>Kurs 1 Monat<b>${pct(perf(4))}</b></div>
         <div>Kurs 1 Quartal<b>${pct(perf(13))}</b></div>
+        <div>Ø pro Jahr, 5 Jahre<b>${pct(v.g5 != null ? v.g5 : null)}</b></div>
         <div>Rang Δ 1W<b>${chg(last - 1 >= 0 && v.r[last - 1] != null ? v.r[last - 1] - v.r[last] : null)}</b></div>
         <div>Rang Δ 4W<b>${chg(last - 4 >= 0 && v.r[last - 4] != null ? v.r[last - 4] - v.r[last] : null)}</b></div>
       </div>
