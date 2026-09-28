@@ -226,6 +226,62 @@ def week_end_dates(index_name, week_starts):
     return out
 
 
+_KAL_CACHE = {}
+_IDX_CACHE = {}
+
+
+def index_weekly(index_name):
+    """Wochenkurse des Index selbst - Grundlage fuer den Markt-RSL.
+
+    DAX, MDAX und TecDAX teilen sich ^GDAXI, deshalb ein Zwischenspeicher.
+    """
+    import yfinance as yf
+    sym = CALENDAR_SYMBOL.get(index_name)
+    if not sym:
+        return None
+    if sym in _IDX_CACHE:
+        return _IDX_CACHE[sym]
+    try:
+        d = yf.download(sym, period=HISTORY_PERIOD, interval="1wk", auto_adjust=True,
+                        progress=False, threads=False, timeout=60)
+        s = None
+        if d is not None and not d.empty:
+            c = d['Close']
+            s = (c.iloc[:, 0] if isinstance(c, pd.DataFrame) else c).dropna()
+    except Exception as e:
+        print(f"  Indexkurse ({sym}) nicht abrufbar: {e}")
+        s = None
+    _IDX_CACHE[sym] = s
+    return s
+
+
+def market_state(index_name, wochen_index, rsl_frame):
+    """Lage des Gesamtmarkts je Woche: Markt-RSL und Marktbreite.
+
+    Markt-RSL = Indexstand / 26-Wochen-Schnitt, also dieselbe Formel wie fuer
+    eine Aktie, nur auf den Index angewandt. Unter 1 liegt der Markt unter
+    seinem eigenen Trend.
+    Marktbreite = Anteil der Aktien mit RSL ueber 1. Faellt oft frueher als der
+    Index, weil ein Index von wenigen Schwergewichten getragen werden kann.
+
+    Beides ist reine Anzeige - es greift nirgends in die Rangberechnung ein.
+    """
+    breite = [round(float((rsl_frame.loc[d] > 1).sum()) / max(int(rsl_frame.loc[d].notna().sum()), 1) * 100, 1)
+              for d in wochen_index]
+
+    s = index_weekly(index_name)
+    mrsl = [None] * len(wochen_index)
+    if s is not None and len(s) >= MIN_PERIODS:
+        sma = s.rolling(window=SMA_PERIOD, min_periods=MIN_PERIODS).mean()
+        v = (s / sma).dropna()
+        for i, d in enumerate(wochen_index):
+            # passende Indexwoche suchen (Yahoo datiert beide auf den Montag)
+            treffer = v[v.index <= pd.Timestamp(d)]
+            if len(treffer):
+                mrsl[i] = round(float(treffer.iloc[-1]), 4)
+    return {'rsl': mrsl, 'breadth': breite}
+
+
 def annual_return(series):
     """Durchschnittliche Rendite pro Jahr ueber rund 5 Jahre, in Prozent.
 
@@ -248,6 +304,9 @@ def annual_return(series):
 
 
 def build_index(index_name, weeks):
+    """Baut zwei Datensaetze: die volle Historie und den Ausschnitt der letzten
+    Wochen. Der Ausschnitt ist die Datei, die beim Oeffnen der Seite geladen
+    wird; die volle Historie liegt daneben und wird erst auf Wunsch geholt."""
     print(f"\n[{index_name}]")
     tickers, sector_info = fetch_tickers(index_name)
     if not tickers:
@@ -266,23 +325,22 @@ def build_index(index_name, weeks):
     keep = vi[vi >= len(close.columns) * 0.5].index
     rsl, close, sma = rsl.loc[keep], close.loc[keep], sma.loc[keep]
     if rsl.empty:
-        raise RuntimeError("Keine gültigen RSL-Werte berechnet.")
+        raise RuntimeError("Keine gueltigen RSL-Werte berechnet.")
 
-    # Jahresrendite aus der VOLLEN Reihe rechnen, bevor auf 78 Wochen gekuerzt wird
     cagr = {t: annual_return(close[t]) for t in close.columns}
     mit_cagr = sum(1 for v in cagr.values() if v is not None)
 
-    rsl, close, sma = rsl.tail(weeks), close.tail(weeks), sma.tail(weeks)
     dates = [d.strftime('%Y-%m-%d') for d in rsl.index]
     enddates = week_end_dates(index_name, rsl.index)
+    markt = market_state(index_name, rsl.index, rsl)
+
     out = {t: {'n': core.ticker_name(t, sector_info),
                's': (sector_info.get(t) or {}).get('sector', ''),
                'g5': cagr.get(t),
                'r': [], 'c': [], 'v': []} for t in close.columns}
     totals = []
-
     for d in rsl.index:
-        rv, cv, sv = rsl.loc[d], close.loc[d], sma.loc[d]
+        rv, cv = rsl.loc[d], close.loc[d]
         valid = rv.notna() & (rv > 0) & (rv < 10)
         ranked = rv[valid].sort_values(ascending=False)
         totals.append(len(ranked))
@@ -292,24 +350,45 @@ def build_index(index_name, weeks):
             out[t]['r'].append(r)
             out[t]['c'].append(round(float(cv[t]), 4) if r else None)
             out[t]['v'].append(round(float(rv[t]), 4) if r else None)
-
-    # Aktien ohne jeden Rang weglassen
     out = {t: v for t, v in out.items() if any(x is not None for x in v['r'])}
-    print(f"  {len(out)} Aktien · {len(dates)} Wochen · letzter Stand {dates[-1]}"
-          f" (Wochenschluss {enddates[-1]}) · {mit_cagr} mit 5-Jahres-Rendite")
 
-    return {
+    kopf = {
         'index': index_name,
         'slug': slug(index_name),
         'description': INDEX_DEFS[index_name].get('description', ''),
         'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
-        'dates': dates,
-        'enddates': enddates,
-        'totals': totals,
         'sma_period': SMA_PERIOD,
         'top_pct': TOP_PCT,
-        'tickers': out,
     }
+    voll = dict(kopf, dates=dates, enddates=enddates, totals=totals, market=markt, tickers=out)
+    kurz = beschneiden(voll, weeks)
+
+    mrsl = markt['rsl'][-1]
+    print(f"  {len(kurz['tickers'])} Aktien · {len(kurz['dates'])} Wochen"
+          f" · letzter Stand {kurz['dates'][-1]} (Wochenschluss {kurz['enddates'][-1]})")
+    print(f"  {mit_cagr} mit 5-Jahres-Rendite · volle Historie {len(dates)} Wochen"
+          f" · Markt-RSL {mrsl if mrsl is not None else '?'}"
+          f" · Marktbreite {markt['breadth'][-1]} %")
+    return kurz, voll
+
+
+def beschneiden(voll, weeks):
+    """Die letzten <weeks> Wochen aus dem vollen Datensatz herausschneiden."""
+    n = len(voll['dates'])
+    if weeks >= n:
+        return dict(voll)
+    ab = n - weeks
+    tick = {}
+    for t, v in voll['tickers'].items():
+        r = v['r'][ab:]
+        if not any(x is not None for x in r):
+            continue                      # Aktie hatte im Fenster keinen Rang
+        tick[t] = dict(v, r=r, c=v['c'][ab:], v=v['v'][ab:])
+    return dict(voll,
+                dates=voll['dates'][ab:], enddates=voll['enddates'][ab:],
+                totals=voll['totals'][ab:],
+                market={'rsl': voll['market']['rsl'][ab:], 'breadth': voll['market']['breadth'][ab:]},
+                tickers=tick)
 
 
 def build_prices(names):
@@ -387,10 +466,14 @@ def main():
         if name not in INDEX_DEFS:
             print(f"Unbekannter Index: {name}"); failed.append(name); continue
         path = OUT / f"{slug(name)}.json"
+        lang = OUT / f"{slug(name)}-lang.json"
+        voll = None
         try:
-            data = build_index(name, args.weeks)
+            data, voll = build_index(name, args.weeks)
             path.write_text(json.dumps(data, separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
-            print(f"  geschrieben: {path.name} ({path.stat().st_size / 1024:.0f} KB)")
+            lang.write_text(json.dumps(voll, separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
+            print(f"  geschrieben: {path.name} ({path.stat().st_size / 1024:.0f} KB)"
+                  f" + {lang.name} ({lang.stat().st_size / 1024:.0f} KB)")
         except Exception as e:
             print(f"  FEHLER: {e}")
             failed.append(name)
@@ -400,7 +483,10 @@ def main():
             print("  behalte die bisherige Datei")
         entries.append({'name': data['index'], 'slug': data['slug'], 'description': data['description'],
                         'date': data['dates'][-1], 'stocks': data['totals'][-1],
-                        'weeks': len(data['dates']), 'generated': data['generated']})
+                        'weeks': len(data['dates']), 'generated': data['generated'],
+                        'long_weeks': len(voll['dates']) if voll else None,
+                        'market': {'rsl': data['market']['rsl'][-1],
+                                   'breadth': data['market']['breadth'][-1]} if data.get('market') else None})
 
     if not entries:
         print("\nKeine Daten erzeugt — Manifest bleibt unverändert.")
