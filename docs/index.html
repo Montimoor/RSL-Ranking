@@ -34,6 +34,15 @@ select:focus,input:focus{border-color:var(--acc);outline:none}
 .btn.ghost{background:transparent;color:var(--ts);border:1px solid var(--brd)}
 main{padding:14px 20px 28px;max-width:1400px;margin:0 auto}
 
+.market{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid var(--brd);
+  border-left-width:4px;border-radius:var(--r);padding:9px 14px;margin-bottom:12px;background:var(--card)}
+.market.gruen{border-left-color:var(--acc)} .market.gelb{border-left-color:var(--org)}
+.market.rot{border-left-color:var(--red)}
+.market .lage{font-weight:700;font-size:15px}
+.market.gruen .lage{color:var(--acc)} .market.gelb .lage{color:var(--org)} .market.rot .lage{color:var(--red)}
+.market .z{color:var(--ts);font-size:13px}
+.market .z b{color:var(--tx);font-weight:600}
+.market .hint{flex:1 0 100%;color:var(--ts);font-size:12px;line-height:1.45}
 .demo{background:#3a2d10;border:1px solid var(--org);color:var(--org);border-radius:var(--r);padding:8px 12px;margin-bottom:12px;font-size:13px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
 .stat{background:var(--card);border:1px solid var(--brd);border-radius:var(--r);padding:10px 14px;min-width:0}
@@ -50,6 +59,8 @@ nav.tabs .ic{font-size:15px}
 .toolbar .grow{flex:1;min-width:140px}
 .note{color:var(--td);font-size:12px;margin:8px 2px}
 
+#mobSortWrap{display:none}
+td.more{display:none}
 .colwrap{position:relative}
 .colbox{position:absolute;right:0;top:calc(100% + 6px);z-index:40;background:var(--card);border:1px solid var(--brd);
   border-radius:var(--r);padding:10px 12px;min-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -101,8 +112,19 @@ td .tk{font-weight:700}
   .brand{font-size:15px;width:100%}
   .hctl{width:100%;flex-wrap:nowrap} .hctl select{flex:1;min-width:0}
   main{padding:10px 10px calc(84px + env(safe-area-inset-bottom,0px))}
-  .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-  .stat{padding:8px 10px} .stat .v{font-size:17px}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:10px}
+  .stat{padding:5px 9px} .stat .v{font-size:15px;margin:1px 0}
+  .stat .k{font-size:11px} .stat .s{font-size:10px}
+  .toolbar .grow{flex:1 0 100%;min-width:0}
+  /* Drei klare Zeilen: Suche | Filter+Spalten | Sortierung */
+  .toolbar{gap:6px}
+  #filter{order:2;flex:1;min-width:0}
+  .colwrap{order:2;flex:0 0 auto}
+  #colBtn{padding:0 12px;font-size:0}
+  #colBtn::after{content:'⚙';font-size:17px}
+  #mobSortWrap{order:3;display:flex;flex:1 0 100%;gap:6px}
+  #mobSort{flex:1;min-width:0}
+  #mobDir{flex:0 0 46px;padding:0}
   nav.tabs{position:fixed;left:0;right:0;bottom:0;margin:0;background:var(--hdr);border-top:1px solid var(--brd);border-bottom:0;z-index:30;padding:0 0 env(safe-area-inset-bottom,0px);gap:0}
   nav.tabs button{flex:1;flex-direction:column;gap:2px;padding:8px 2px 9px;font-size:11px;border-bottom:0;border-top:2px solid transparent}
   nav.tabs button[aria-selected=true]{border-top-color:var(--acc)}
@@ -116,7 +138,14 @@ td .tk{font-weight:700}
   td::before{content:attr(data-label);color:var(--ts);font-size:13px;text-align:left}
   td.head{order:-1;font-size:16px;padding-bottom:6px;margin-bottom:4px;border-bottom:1px solid var(--brd);justify-content:flex-start;text-align:left!important}
   td.head::before{content:none}
-  td.mhide{display:none}
+  td.mhide,.mobhide{display:none}
+  .market{gap:8px;padding:8px 12px} .market .lage{font-size:14px}
+  .market .hint{font-size:11.5px}
+  td.extra{display:none}
+  tbody tr.open td.extra{display:flex}
+  td.more{display:flex;justify-content:center;text-align:center!important;color:var(--blu);font-size:13px;
+    padding:6px 0 1px;margin-top:4px;border-top:1px solid var(--brd);cursor:pointer}
+  td.more::before{content:none}
   td.empty{display:block;text-align:center!important}
   td.empty::before{content:none}
   .charts{grid-template-columns:1fr}
@@ -132,11 +161,14 @@ td .tk{font-weight:700}
   <div class="hctl">
     <select id="idx" aria-label="Index"></select>
     <select id="week" aria-label="Woche"></select>
+    <button class="btn ghost" id="longBtn" type="button" title="Volle Historie nachladen">5&nbsp;J.</button>
   </div>
 </header>
 
 <main>
   <div id="demoBox" class="demo hidden"></div>
+  <div id="staleBox" class="demo hidden"></div>
+  <div id="marketBox" class="hidden"></div>
   <section class="stats" id="stats"></section>
 
   <nav class="tabs" role="tablist">
@@ -154,6 +186,8 @@ td .tk{font-weight:700}
         <option value="all">Alle</option>
         <option value="weak">Unterhalb der Kaufzone</option>
       </select>
+      <span id="mobSortWrap"><select id="mobSort" aria-label="Sortieren nach"></select>
+        <button class="btn ghost" id="mobDir" type="button" title="Reihenfolge umkehren">↓</button></span>
       <span class="colwrap">
         <button class="btn ghost" id="colBtn" type="button" aria-expanded="false">⚙ Spalten</button>
         <div class="colbox hidden" id="colBox"></div>
@@ -189,7 +223,7 @@ td .tk{font-weight:700}
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const S = {manifest: null, slug: null, data: null, week: -1, tab: 'rk', sort: {}, cache: {},
-           cols: null, prices: null, pricesGen: null, cur: null};
+           cols: null, prices: null, pricesGen: null, cur: null, long: {}};
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nf = (v, d = 0) => v == null ? '-' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
@@ -253,9 +287,17 @@ function table(id, cols, rows, {onRow, empty, rerender} = {}) {
     el.innerHTML = `<thead><tr>${th}</tr></thead><tbody><tr><td colspan="${cols.length}" class="empty">${empty || 'Keine Einträge.'}</td></tr></tbody>`;
     return;
   }
+  // Auf dem Handy zeigt die Karte nur die Kernwerte; der Rest klappt auf.
+  const versteckt = cols.filter(c => !c.core && !c.head && !c.mh).length;
   el.innerHTML = `<thead><tr>${th}</tr></thead><tbody>` + data.map((r, i) =>
     `<tr data-i="${i}" class="${onRow ? 'click ' : ''}${r.rank <= 5 ? 'top5' : ''}">` + cols.map(c =>
-      `<td data-label="${esc(c.l)}" class="${c.r ? 'r ' : ''}${c.head ? 'head ' : ''}${c.mh ? 'mhide' : ''}">${c.f ? c.f(r) : esc(r[c.k] ?? '-')}</td>`).join('') + '</tr>').join('') + '</tbody>';
+      `<td data-label="${esc(c.l)}" class="${c.r ? 'r ' : ''}${c.head ? 'head ' : ''}${c.mh ? 'mhide' : ''}${!c.core && !c.head && !c.mh ? ' extra' : ''}">${c.f ? c.f(r) : esc(r[c.k] ?? '-')}</td>`).join('')
+      + (versteckt ? `<td class="more">▾ ${versteckt} weitere</td>` : '') + '</tr>').join('') + '</tbody>';
+  $$('td.more', el).forEach(td => td.onclick = e => {
+    e.stopPropagation();                       // nicht die Detailansicht oeffnen
+    const tr = td.closest('tr'), auf = tr.classList.toggle('open');
+    td.textContent = (auf ? '▴ weniger' : `▾ ${versteckt} weitere`);
+  });
   $$('th', el).forEach(h => {
     if (h.classList.contains('nosort')) return;
     h.onclick = () => {
@@ -306,12 +348,55 @@ function zoneBar(rank, total, top5) {
 }
 
 // ---------- Rendern ----------
+// ---------- Marktlage (Anzeige, kein Automatismus) ----------
+// Markt-RSL = Indexstand / 26-Wochen-Schnitt. Unter 1 liegt der Markt unter
+// seinem eigenen Trend. Marktbreite = Anteil der Aktien mit RSL über 1.
+const BREITE_SCHWELLE = 50;
+
+function renderMarket() {
+  const box = $('#marketBox'), m = S.data && S.data.market;
+  if (!m || m.rsl[S.week] == null) { box.className = 'hidden'; box.innerHTML = ''; return; }
+  const rsl = m.rsl[S.week], br = m.breadth[S.week];
+  const imTrend = rsl >= 1, breit = br >= BREITE_SCHWELLE;
+  const stufe = imTrend && breit ? 'gruen' : (imTrend || breit) ? 'gelb' : 'rot';
+  const text = {
+    gruen: ['Markt im Aufwärtstrend', 'Beide Signale positiv.'],
+    gelb:  ['Markt uneinheitlich', imTrend
+      ? 'Der Index liegt über seinem Trend, aber nur wenige Aktien tragen ihn.'
+      : 'Der Index liegt unter seinem Trend, die Breite hält sich noch.'],
+    rot:   ['Markt im Abwärtstrend', 'Index unter dem eigenen Trend und wenige starke Aktien.'],
+  }[stufe];
+  box.className = 'market ' + stufe;
+  box.innerHTML =
+    `<span class="lage">${stufe === 'gruen' ? '●' : stufe === 'gelb' ? '●' : '●'} ${text[0]}</span>` +
+    `<span class="z">Markt-RSL <b class="${imTrend ? 'pos' : 'neg'}">${nf(rsl, 3)}</b></span>` +
+    `<span class="z">Marktbreite <b class="${breit ? 'pos' : 'neg'}">${nf(br, 0)}&thinsp;%</b> über RSL 1</span>` +
+    `<span class="hint">${text[1]}<span class="mobhide"> Diese Anzeige greift nicht in die Rangberechnung ein und löst nichts aus – sie ist als Entscheidungshilfe gedacht, nicht als Regel.</span></span>`;
+}
+
+// ---------- Warnung bei veralteten Daten ----------
+// Schlägt ein Index beim Laden fehl, bleibt seine alte Datei stehen. Ohne
+// Hinweis sähe die Seite aus, als wäre alles frisch.
+function renderStale() {
+  const box = $('#staleBox');
+  if (!S.data) { box.classList.add('hidden'); return; }
+  const heute = new Date(), meldungen = [];
+  const tageSeit = iso => Math.floor((heute - new Date(iso + 'T12:00:00Z')) / 864e5);
+  const letzte = weekEnd(S.data.dates.length - 1) || S.data.dates[S.data.dates.length - 1];
+  const alt = tageSeit(letzte);
+  if (alt > 11) meldungen.push(`Die Rangliste stammt vom ${letzte} und ist ${alt} Tage alt – vermutlich ist der letzte Lauf für diesen Index fehlgeschlagen.`);
+  const pd = priceDate();
+  if (pd && tageSeit(pd) > 4) meldungen.push(`Der aktuelle Kurs ist vom ${pd}.`);
+  box.classList.toggle('hidden', !meldungen.length);
+  box.innerHTML = meldungen.length ? '⚠️ ' + meldungen.join(' ') : '';
+}
+
 function renderStats() {
   const i = S.week, d = S.data, rows = S.rows, z = zoneSize(i);
   const up = rows.filter(r => r.rsl > 1).length;
   const card = (t, v, s) => `<div class="stat"><div class="t">${t}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
   $('#stats').innerHTML =
-    card('Stand', d.dates[i], `${d.dates.length} Wochen · ${esc(d.index)}`) +
+    card('Stand', weekEnd(i) || d.dates[i], `${d.dates.length} Wochen · ${esc(d.index)}`) +
     card('Aktien', d.totals[i], esc(d.description)) +
     card('Kaufzone', 'Rang 1–' + z, `obere ${Math.round((d.top_pct || .25) * 100)} %`) +
     card('RSL über 1', up, `${Math.round(up / rows.length * 100)} % der Aktien`);
@@ -320,16 +405,16 @@ function renderStats() {
 // ---------- Spaltenauswahl ----------
 // fix = immer sichtbar, alles andere lässt sich abwählen.
 const COL_DEFS = [
-  {k: 'rank',   l: 'Rang',      fix: 1, r: 1,
+  {k: 'rank',   l: 'Rang',      fix: 1, r: 1, core: 1,
    f: r => (r.rank <= 5 ? '<span class="star">★</span>' : '') + zoneBar(r.rank, S.data.totals[S.week], r.rank <= 5)},
-  {k: 'ticker', l: 'Ticker',    fix: 1, head: 1,
+  {k: 'ticker', l: 'Ticker',    fix: 1, head: 1, core: 1,
    f: r => `<span class="tk">${esc(r.ticker)}</span>` + (isMobile() ? `&nbsp;&nbsp;<span class="dim">${esc(r.name)}</span>` : '')},
   {k: 'name',   l: 'Name',      mh: 1, f: r => `<span class="dim">${esc(r.name)}</span>`},
-  {k: 'close',  l: 'Kurs (Wo.)', r: 1, f: r => money(r.close)},
-  {k: 'now',    l: 'Aktuell',   r: 1, f: r => money(r.now)},
+  {k: 'close',  l: 'Kurs (Wo.)', r: 1, core: 1, f: r => money(r.close)},
+  {k: 'now',    l: 'Aktuell',   r: 1, core: 1, f: r => money(r.now)},
   {k: 'nowchg', l: 'Δ aktuell', r: 1, f: r => pct(r.nowchg)},
   {k: 'sma',    l: 'SMA-26',    r: 1, f: r => money(r.sma)},
-  {k: 'rsl',    l: 'RSL',       r: 1, f: r => `<span class="${r.rsl >= 1 ? 'pos' : ''}">${nf(r.rsl, 4)}</span>`},
+  {k: 'rsl',    l: 'RSL',       r: 1, core: 1, f: r => `<span class="${r.rsl >= 1 ? 'pos' : ''}">${nf(r.rsl, 4)}</span>`},
   {k: 'c1',     l: 'Rang Δ1W',  r: 1, f: r => chg(r.c1)},
   {k: 'c4',     l: 'Rang Δ4W',  r: 1, f: r => chg(r.c4)},
   {k: 'p1',     l: 'Kurs 1W',   r: 1, f: r => pct(r.p1)},
@@ -399,6 +484,20 @@ function toggleColBox(show) {
   btn.setAttribute('aria-expanded', String(open));
 }
 
+// Auf dem Handy fehlen die Spaltenkoepfe zum Antippen - deshalb ein Auswahlfeld.
+function fillMobSort() {
+  const sel = $('#mobSort'), st = S.sort['tblRk'];
+  const k = st ? st.k : 'rank';
+  sel.innerHTML = activeCols().filter(c => !c.ns).map(c =>
+    `<option value="${c.k}"${c.k === k ? ' selected' : ''}>${esc(c.l)}</option>`).join('');
+  $('#mobDir').textContent = (st ? st.dir : 'asc') === 'asc' ? '↑' : '↓';
+}
+
+function setMobSort(k, dir) {
+  S.sort['tblRk'] = (k === 'rank' && dir === 'asc') ? null : {k, dir};
+  renderRk();
+}
+
 function renderRk() {
   const f = $('#filter').value, s = $('#q').value.trim().toUpperCase(), z = zoneSize(S.week);
   let rows = S.rows;
@@ -411,6 +510,7 @@ function renderRk() {
   // Einzelne Werte können einen älteren Handelstag haben (Feiertag, Aussetzung).
   const tage = S.rows.map(r => r.nowDate).filter(Boolean);
   const pd = tage.length ? tage.reduce((a, b) => a > b ? a : b) : null;
+  fillMobSort();
   $('#rkStatus').textContent = `${rows.length} von ${S.rows.length} Aktien · Kaufzone = Rang 1–${z}`
     + (pd ? ` · Spalte „Aktuell" = Schlusskurs ${pd}` : '');
 }
@@ -528,7 +628,7 @@ function showTab(tab) {
 
 function renderAll() {
   S.rows = rowsFor(S.week);
-  renderStats(); renderRk(); renderMom();
+  renderStale(); renderMarket(); renderStats(); renderRk(); renderMom();
   if (S.tab === 'det' && $('#detInput').value) renderDet();
 }
 
@@ -541,12 +641,35 @@ async function selectIndex(slug) {
     return;
   }
   S.cur = currency(S.data.tickers);
-  const w = $('#week');
-  w.innerHTML = S.data.dates.map((d, i) => `<option value="${i}">${d}</option>`).join('');
-  S.week = S.data.dates.length - 1;
-  w.value = S.week;
+  fillWeeks();
   localStorage.setItem('rslsite_index', slug);
   renderAll();
+}
+
+function fillWeeks() {
+  const w = $('#week');
+  w.innerHTML = S.data.dates.map((d, i) =>
+    `<option value="${i}">${weekEnd(i) || d}</option>`).join('');
+  S.week = S.data.dates.length - 1;
+  w.value = S.week;
+  // Der Knopf verschwindet, sobald die volle Historie geladen ist
+  $('#longBtn').classList.toggle('hidden', !!S.long[S.slug]);
+}
+
+// Die Seite lädt zunächst nur 78 Wochen. Die volle Historie liegt in einer
+// zweiten Datei und wird erst auf Wunsch geholt – sie ist deutlich größer.
+async function loadLong() {
+  const btn = $('#longBtn'), slug = S.slug;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const d = await loadJSON('data/' + slug + '-lang.json');
+    S.cache[slug] = d; S.long[slug] = true; S.data = d;
+    fillWeeks(); renderAll();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '5 J.';
+    alert('Die lange Historie konnte nicht geladen werden.\n' + e.message
+          + '\n\nSie entsteht erst beim nächsten vollen Lauf.');
+  }
 }
 
 async function init() {
@@ -577,6 +700,15 @@ $('#week').onchange = e => { S.week = +e.target.value; renderAll(); };
 $('#q').oninput = renderRk;
 $('#filter').onchange = renderRk;
 $('#momBy').onchange = renderMom;
+$('#longBtn').onclick = loadLong;
+$('#mobSort').onchange = e => {
+  const c = COL_DEFS.find(c => c.k === e.target.value);
+  setMobSort(e.target.value, c && c.r && e.target.value !== 'rank' ? 'desc' : 'asc');
+};
+$('#mobDir').onclick = () => {
+  const st = S.sort['tblRk'] || {k: 'rank', dir: 'asc'};
+  setMobSort(st.k, st.dir === 'asc' ? 'desc' : 'asc');
+};
 $('#detForm').onsubmit = e => { e.preventDefault(); renderDet(); };
 $$('nav.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 let lastW = innerWidth;
