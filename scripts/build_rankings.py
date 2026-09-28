@@ -30,7 +30,22 @@ from rsl_core import SMA_PERIOD, MIN_PERIODS, TOP_PCT, INDEX_DEFS, fetch_index_t
 
 OUT = Path(__file__).resolve().parent.parent / 'docs' / 'data'
 WEEKS_DEFAULT = 78          # rund 1,5 Jahre Historie in der JSON-Datei
+HISTORY_PERIOD = "5y"       # so viel wird geladen - noetig fuer die 5-Jahres-Rendite
+CAGR_WEEKS = 261            # 5 Jahre in Wochen
+CAGR_MIN_WEEKS = 235        # darunter (rund 4,5 Jahre) bleibt die Spalte leer
 RETRIES = 3
+
+# Ein Indexsymbol je Markt liefert den Handelskalender. Daraus laesst sich zu
+# jeder Wochenkerze der tatsaechlich letzte Handelstag bestimmen - Yahoo datiert
+# Wochenkerzen auf den Montag, der Kurs darin ist aber der Wochenschluss.
+CALENDAR_SYMBOL = {
+    'S&P 500': '^GSPC', 'DAX': '^GDAXI', 'MDAX': '^GDAXI', 'TecDAX': '^GDAXI',
+    'Nikkei 225': '^N225', 'KOSPI 200': '^KS11',
+}
+
+# Untergrenzen fuer den Wikipedia-Abruf. Liefert die Seite weniger, gilt der
+# Abruf als misslungen und die fest hinterlegte Liste greift.
+WIKI_MIN = {'S&P 500': 400, 'DAX': 35, 'MDAX': 45, 'TecDAX': 25, 'Nikkei 225': 200}
 
 
 def slug(name):
@@ -44,8 +59,8 @@ def download(tickers):
     last = None
     for n in range(1, RETRIES + 1):
         try:
-            d = yf.download(tickers, period="2y", interval="1wk", auto_adjust=True,
-                            progress=False, threads=True, timeout=60)
+            d = yf.download(tickers, period=HISTORY_PERIOD, interval="1wk", auto_adjust=True,
+                            progress=False, threads=True, timeout=90)
             if d is not None and not d.empty:
                 return d
             last = "Leere Antwort von Yahoo."
@@ -97,9 +112,144 @@ def close_frame(data, tickers, fill=True):
     return c
 
 
+def wiki_tickers(index_name):
+    """Aktuelle Indexzusammensetzung von Wikipedia lesen.
+
+    Gibt (tickers, sector_info) zurueck oder ([], {}) wenn nichts Brauchbares
+    gefunden wurde. Die Seiten enthalten mehrere Tabellen (Jahresentwicklung,
+    ehemalige Mitglieder); gesucht wird die mit Ticker- UND Namensspalte und den
+    meisten Zeilen.
+    """
+    cfg = INDEX_DEFS.get(index_name) or {}
+    url = cfg.get('wiki_url')
+    if not url:
+        return [], {}
+
+    import urllib.request, ssl
+    from io import StringIO
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (RSL-Ranking)'})
+    with urllib.request.urlopen(req, context=ctx, timeout=45) as r:
+        html = r.read().decode('utf-8', errors='replace')
+    tables = pd.read_html(StringIO(html))
+
+    # Spaltennamen sind je Seite verschieden - mehrere Schreibweisen zulassen
+    tcands = [cfg.get('col_ticker'), 'Ticker', 'Ticker symbol', 'Symbol', 'Code']
+    ncands = [cfg.get('col_name'), 'Company', 'Security', 'Company name', 'Name']
+    scands = [cfg.get('col_sector'), 'GICS Sector', 'Prime Standard Sector', 'Sector', 'Industry']
+    pick = lambda cols, cands: next((c for c in cands if c and c in cols), None)
+
+    best = None
+    for df in tables:
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [' '.join(str(x) for x in c if 'Unnamed' not in str(x)).strip()
+                          for c in df.columns]
+        df.columns = [str(c).strip() for c in df.columns]
+        tc, nc = pick(df.columns, tcands), pick(df.columns, ncands)
+        if tc and nc and (best is None or len(df) > len(best[0])):
+            best = (df, tc, nc, pick(df.columns, scands))
+    if best is None:
+        return [], {}
+
+    df, tc, nc, sc = best
+    suffix = cfg.get('suffix', '')
+    repl = cfg.get('ticker_replace') or {}
+    tickers, si = [], {}
+    for _, row in df.iterrows():
+        raw = str(row.get(tc, '')).strip()
+        if not raw or raw.lower() in ('nan', '-', '—'):
+            continue
+        for a, b in repl.items():
+            raw = raw.replace(a, b)
+        # Nikkei fuehrt reine Zahlencodes, deutsche Seiten haben die Endung schon dabei
+        t = raw if '.' in raw else raw + suffix
+        if t in si:
+            continue
+        tickers.append(t)
+        si[t] = {'name': str(row.get(nc, t)).strip(),
+                 'sector': str(row.get(sc, '')).strip() if sc else ''}
+    return tickers, si
+
+
+def fetch_tickers(index_name):
+    """Zuerst Wikipedia, bei Zweifel die fest hinterlegte Liste.
+
+    Die festen Listen in rsl_core veralten (delistete Firmen, fehlende
+    Nachruecker), deshalb hat Wikipedia Vorrang. Liefert Wikipedia aber
+    unplausibel wenige Werte, ist die alte Liste immer noch besser als nichts.
+    """
+    mind = WIKI_MIN.get(index_name)
+    if mind:
+        try:
+            tickers, si = wiki_tickers(index_name)
+            if len(tickers) >= mind:
+                print(f"  Quelle: Wikipedia ({len(tickers)} Werte)")
+                return tickers, si
+            print(f"  Wikipedia lieferte nur {len(tickers)} Werte (erwartet >= {mind})"
+                  f" - nehme die fest hinterlegte Liste")
+        except Exception as e:
+            print(f"  Wikipedia nicht erreichbar ({e}) - nehme die fest hinterlegte Liste")
+
+    tickers, si = fetch_index_tickers(index_name)
+    print(f"  Quelle: feste Liste ({len(tickers)} Werte)")
+    return tickers, si
+
+
+def week_end_dates(index_name, week_starts):
+    """Zu jedem Wochenbeginn den tatsaechlich letzten Handelstag bestimmen.
+
+    Yahoo datiert eine Wochenkerze auf den Montag, der Kurs darin ist aber der
+    Schlusskurs der ganzen Woche. Ohne diese Korrektur stuende in der Anzeige ein
+    Montagsdatum an einem Freitagskurs. Faellt der Abruf aus, wird auf
+    "Montag + 4 Tage" geschaetzt.
+    """
+    import yfinance as yf
+    sym = CALENDAR_SYMBOL.get(index_name)
+    days = []
+    if sym:
+        try:
+            d = yf.download(sym, period=HISTORY_PERIOD, interval="1d", auto_adjust=True,
+                            progress=False, threads=False, timeout=60)
+            if d is not None and not d.empty:
+                days = sorted(pd.DatetimeIndex(d.index).normalize())
+        except Exception as e:
+            print(f"  Handelskalender ({sym}) nicht abrufbar: {e}")
+
+    out = []
+    for ws in week_starts:
+        start = pd.Timestamp(ws).normalize()
+        end = start + pd.Timedelta(days=6)
+        inner = [d for d in days if start <= d <= end]
+        out.append((max(inner) if inner else start + pd.Timedelta(days=4)).strftime('%Y-%m-%d'))
+    return out
+
+
+def annual_return(series):
+    """Durchschnittliche Rendite pro Jahr ueber rund 5 Jahre, in Prozent.
+
+    Rechnet auf den geladenen Wochenkursen. Diese sind dividenden- und
+    splitbereinigt (auto_adjust), der Wert ist also eine Gesamtrendite, nicht
+    die reine Kursveraenderung. Aktien mit zu kurzer Historie bleiben leer,
+    damit keine unvergleichbaren Zeitraeume nebeneinander stehen.
+    """
+    s = series.dropna()
+    if len(s) < CAGR_MIN_WEEKS:
+        return None
+    s = s.tail(CAGR_WEEKS)
+    start, end = float(s.iloc[0]), float(s.iloc[-1])
+    if start <= 0 or end <= 0:
+        return None
+    years = (len(s) - 1) / 52.0
+    if years < 1:
+        return None
+    return round(((end / start) ** (1 / years) - 1) * 100, 2)
+
+
 def build_index(index_name, weeks):
     print(f"\n[{index_name}]")
-    tickers, sector_info = fetch_index_tickers(index_name)
+    tickers, sector_info = fetch_tickers(index_name)
     if not tickers:
         raise RuntimeError("Keine Ticker gefunden.")
     print(f"  {len(tickers)} Ticker, lade Kursdaten...")
@@ -118,10 +268,16 @@ def build_index(index_name, weeks):
     if rsl.empty:
         raise RuntimeError("Keine gültigen RSL-Werte berechnet.")
 
+    # Jahresrendite aus der VOLLEN Reihe rechnen, bevor auf 78 Wochen gekuerzt wird
+    cagr = {t: annual_return(close[t]) for t in close.columns}
+    mit_cagr = sum(1 for v in cagr.values() if v is not None)
+
     rsl, close, sma = rsl.tail(weeks), close.tail(weeks), sma.tail(weeks)
     dates = [d.strftime('%Y-%m-%d') for d in rsl.index]
+    enddates = week_end_dates(index_name, rsl.index)
     out = {t: {'n': core.ticker_name(t, sector_info),
                's': (sector_info.get(t) or {}).get('sector', ''),
+               'g5': cagr.get(t),
                'r': [], 'c': [], 'v': []} for t in close.columns}
     totals = []
 
@@ -139,7 +295,8 @@ def build_index(index_name, weeks):
 
     # Aktien ohne jeden Rang weglassen
     out = {t: v for t, v in out.items() if any(x is not None for x in v['r'])}
-    print(f"  {len(out)} Aktien · {len(dates)} Wochen · letzter Stand {dates[-1]}")
+    print(f"  {len(out)} Aktien · {len(dates)} Wochen · letzter Stand {dates[-1]}"
+          f" (Wochenschluss {enddates[-1]}) · {mit_cagr} mit 5-Jahres-Rendite")
 
     return {
         'index': index_name,
@@ -147,6 +304,7 @@ def build_index(index_name, weeks):
         'description': INDEX_DEFS[index_name].get('description', ''),
         'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
         'dates': dates,
+        'enddates': enddates,
         'totals': totals,
         'sma_period': SMA_PERIOD,
         'top_pct': TOP_PCT,
@@ -174,7 +332,7 @@ def build_prices(names):
             continue
         print(f"\n[Kurse {name}]")
         try:
-            tickers, _ = fetch_index_tickers(name)
+            tickers, _ = fetch_tickers(name)   # gleiche Quelle wie die Ranglisten
             if not tickers:
                 raise RuntimeError("Keine Ticker gefunden.")
             # fill=False: jeder Kurs behaelt das Datum, an dem er wirklich entstand
