@@ -4,15 +4,18 @@ Baut die statischen RSL-Ranglisten für die Website.
 Lädt fünf Jahre Wochenkurse von Yahoo Finance, berechnet RSL = Kurs / SMA(26 Wochen)
 und die Ränge für JEDE Woche und schreibt pro Index eine JSON-Datei nach docs/data/.
 
-Zusaetzlich wird docs/data/prices.json geschrieben: der letzte Tagesschlusskurs
-je Aktie. Dieser Wert dient NUR der Anzeige - die RSL-Berechnung und alle
-Raenge bleiben unveraendert auf Wochenbasis (Levy).
+Zusaetzlich entstehen aus Tageskursen:
+  docs/data/prices.json  der letzte Tagesschlusskurs je Aktie (Anzeige)
+  docs/data/heute.json   die Rangliste "Stand heute": RSL = Tagesschluss / SMA aus
+                         26 Wochen, wobei die laufende Woche mit dem Tagesschluss
+                         eingeht. Am Freitag nach Handelsschluss ist das genau der
+                         Wochen-RSL. Die Wochenhistorie bleibt davon unberuehrt.
 
 Aufruf:
   python scripts/build_rankings.py                 # alle Indizes, volle Rechnung
   python scripts/build_rankings.py --index DAX     # nur einer
   python scripts/build_rankings.py --weeks 78      # mehr Historie behalten
-  python scripts/build_rankings.py --prices-only   # nur Tagesschlusskurse auffrischen
+  python scripts/build_rankings.py --prices-only   # nur Tageskurse und "Stand heute" auffrischen
 
 Schlägt ein Index fehl (Yahoo blockt, Netzwerk weg), bleibt seine bisherige
 JSON-Datei unverändert stehen. Die Seite zeigt dann die Daten der Vorwoche.
@@ -47,6 +50,8 @@ CALENDAR_SYMBOL = {
 
 # Untergrenzen fuer den Wikipedia-Abruf. Liefert die Seite weniger, gilt der
 # Abruf als misslungen und die fest hinterlegte Liste greift.
+DAILY_PERIOD = "9mo"         # Tageskurse: reicht fuer 26 Wochen SMA plus Puffer
+
 WIKI_MIN = {'S&P 500': 400, 'DAX': 35, 'MDAX': 45, 'TecDAX': 25, 'Nikkei 225': 200,
             'KOSPI 200': 180}
 
@@ -101,13 +106,13 @@ def download(tickers):
 
 
 def download_daily(tickers):
-    """Letzte Tageskurse laden (nur fuer die Anzeige des aktuellen Kurses)."""
+    """Tageskurse der letzten Monate laden (aktueller Kurs und Rangliste "Stand heute")."""
     import yfinance as yf
     last = None
     for n in range(1, RETRIES + 1):
         try:
-            d = yf.download(tickers, period="10d", interval="1d", auto_adjust=True,
-                            progress=False, threads=True, timeout=60)
+            d = yf.download(tickers, period=DAILY_PERIOD, interval="1d", auto_adjust=True,
+                            progress=False, threads=True, timeout=90)
             if d is not None and not d.empty:
                 return nur_fertige_tage(d)
             last = "Leere Antwort von Yahoo."
@@ -450,23 +455,86 @@ def beschneiden(voll, weeks):
                 tickers=tick)
 
 
+def index_daily(index_name):
+    """Tageskurse des Index selbst - fuer den Markt-RSL "Stand heute"."""
+    import yfinance as yf
+    sym = CALENDAR_SYMBOL.get(index_name)
+    if not sym:
+        return None
+    try:
+        d = yf.download(sym, period=DAILY_PERIOD, interval="1d", auto_adjust=True,
+                        progress=False, threads=False, timeout=60)
+        if d is None or d.empty:
+            return None
+        c = nur_fertige_tage(d)['Close']
+        s = (c.iloc[:, 0] if isinstance(c, pd.DataFrame) else c).dropna()
+        s.index = _tage(s.index)
+        return s
+    except Exception as e:
+        print(f"  Indexkurse taeglich ({sym}) nicht abrufbar: {e}")
+        return None
+
+
+def rsl_heute(close):
+    """RSL je Spalte zum letzten Tagesschluss.
+
+    Die Tageskurse werden zu Wochen (bis Freitag) zusammengefasst; die laufende
+    Woche bekommt dabei den letzten Tagesschluss als Kurs. Der Wert ist also der
+    RSL, den die Woche haette, wenn sie heute endete.
+    """
+    wk = close.resample('W-FRI').last()
+    sma = wk.rolling(window=SMA_PERIOD, min_periods=MIN_PERIODS).mean()
+    return (wk / sma).iloc[-1], wk.iloc[-1]
+
+
+def tages_rangliste(index_name, close):
+    """Rangliste "Stand heute" aus Tageskursen (Spalten = Ticker)."""
+    close = close.copy()
+    close.index = _tage(close.index)
+    rsl, kurs = rsl_heute(close)
+    if rsl.notna().sum() < len(close.columns) * 0.5:
+        raise RuntimeError("Zu wenige Aktien mit Tages-RSL.")
+    valid = rsl.notna() & (rsl > 0) & (rsl < 10)
+    ranked = rsl[valid].sort_values(ascending=False)
+    tick = {t: [i, round(float(rsl[t]), 4), round(float(kurs[t]), 4)]
+            for i, t in enumerate(ranked.index, 1)}
+    breite = round(float((rsl > 1).sum()) / max(int(rsl.notna().sum()), 1) * 100, 1)
+    mrsl = None
+    s = index_daily(index_name)
+    if s is not None and len(s):
+        m, _ = rsl_heute(s.to_frame())
+        if pd.notna(m.iloc[0]):
+            mrsl = round(float(m.iloc[0]), 4)
+    return {'date': close.index.max().strftime('%Y-%m-%d'), 'totals': len(ranked),
+            'market': {'rsl': mrsl, 'breadth': breite}, 'tickers': tick}
+
+
 def build_prices(names):
     """Schreibt docs/data/prices.json mit dem letzten Tagesschlusskurs je Aktie.
 
-    Reine Anzeigegroesse. Schlaegt ein Index fehl, bleiben seine bisherigen
-    Kurse aus der alten Datei erhalten. Klappen alle Indizes, wird die Datei
-    neu aufgebaut, damit Ticker, die aus einer Liste gefallen sind, verschwinden.
+    Aus denselben Tageskursen entsteht docs/data/heute.json mit der Rangliste
+    "Stand heute" je Index.
+
+    Schlaegt ein Index fehl, bleiben seine bisherigen Werte aus den alten
+    Dateien erhalten. Klappen alle Indizes, werden die Dateien neu aufgebaut,
+    damit Ticker, die aus einer Liste gefallen sind, verschwinden.
     """
     path = OUT / 'prices.json'
-    prices = {}
+    hpath = OUT / 'heute.json'
+    prices, heute = {}, {}
     if path.exists():
         try:
             prices = json.loads(path.read_text(encoding='utf-8')).get('prices', {})
         except Exception:
             prices = {}
+    if hpath.exists():
+        try:
+            heute = json.loads(hpath.read_text(encoding='utf-8')).get('indices', {})
+        except Exception:
+            heute = {}
 
     ok, failed = [], []
-    frisch = {}
+    frisch, heute_frisch = {}, {}
     for name in names:
         if name not in INDEX_DEFS:
             continue
@@ -489,6 +557,13 @@ def build_prices(names):
                 raise RuntimeError("Keine Kurse in der Antwort.")
             print(f"  {n} Kurse, letzter Handelstag {max(tage)}"
                   + (f" (abweichend bei einzelnen Werten, frueheste: {min(tage)})" if len(tage) > 1 else ""))
+            try:
+                h = tages_rangliste(name, close)
+                heute_frisch[slug(name)] = h
+                print(f"  Stand heute {h['date']}: {h['totals']} Aktien im Rang"
+                      f" · Markt-RSL {h['market']['rsl']} · Marktbreite {h['market']['breadth']} %")
+            except Exception as e:
+                print(f"  Stand heute nicht berechenbar: {e}")
             ok.append(name)
         except Exception as e:
             print(f"  FEHLER: {e}")
@@ -498,9 +573,13 @@ def build_prices(names):
         print("\nKeine Kurse erhalten - prices.json bleibt unveraendert.")
         return 1
     if failed or set(INDEX_DEFS) - set(names):
-        prices.update(frisch)   # alte Kurse der nicht abgerufenen Indizes behalten
+        prices.update(frisch)   # alte Werte der nicht abgerufenen Indizes behalten
+        heute.update(heute_frisch)
     else:
-        prices = frisch
+        prices, heute = frisch, heute_frisch
+    jetzt = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+    hpath.write_text(json.dumps({'generated': jetzt, 'sma_period': SMA_PERIOD, 'indices': heute},
+                                separators=(',', ':'), ensure_ascii=False), encoding='utf-8')
 
     path.write_text(json.dumps({
         'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
@@ -516,7 +595,7 @@ def main():
     ap.add_argument('--index', action='append', help="nur diese Indizes (mehrfach möglich)")
     ap.add_argument('--weeks', type=int, default=WEEKS_DEFAULT)
     ap.add_argument('--prices-only', action='store_true',
-                    help="nur die Tagesschlusskurse auffrischen, Raenge unveraendert lassen")
+                    help="nur Tageskurse und Rangliste 'Stand heute' auffrischen, Wochenraenge unveraendert lassen")
     args = ap.parse_args()
 
     names = args.index or list(INDEX_DEFS.keys())

@@ -74,7 +74,7 @@ Rufe `https://deinname.github.io/rsl-ranking/` auf. Nach dem allerersten Aktivie
 
 Am Handy im Browser öffnen und **Zum Startbildschirm hinzufügen** wählen. Die Seite verhält sich dann wie eine App und lädt die Daten beim Öffnen neu.
 
-Ab jetzt läuft alles von allein: Montag bis Samstag um 04:23 UTC, also 06:23 deutscher Sommerzeit und 05:23 im Winter, startet GitHub den Lauf. Montags wird die Wochenrangliste neu gerechnet, Dienstag bis Samstag werden nur die Tagesschlusskurse aufgefrischt.
+Ab jetzt läuft alles von allein: Montag bis Samstag um 04:23 UTC, also 06:23 deutscher Sommerzeit und 05:23 im Winter, startet GitHub den Lauf. Montags wird die Wochenrangliste neu gerechnet. Jeder Lauf rechnet außerdem die Rangliste „Stand heute“: RSL zum letzten Tagesschluss, wobei die laufende Woche mit dem Tageskurs in den 26-Wochen-Schnitt eingeht. Die Seite zeigt diesen Stand als Standard, die abgeschlossenen Wochen lassen sich im Wochenfeld wählen.
 
 ---
 
