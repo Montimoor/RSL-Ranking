@@ -43,7 +43,8 @@ cd docs && python -m http.server 8000   →  http://localhost:8000
 ```
 
 ## Umgebung (Windows-PC)
-- Repo liegt in `C:\Trading\RSL-Ranking`. Git 2.56 und GitHub CLI sind installiert (seit 03.11.2026).
+- Repo liegt in `C:\Trading\RSL-Ranking`. Git 2.56 und GitHub CLI sind installiert, `gh` ist als Montimoor angemeldet (seit 03.11.2026).
 - Python 3.12 (`py -3`). Für dieses Projekt gibt es noch keine `.venv`.
-- Kein `gh auth login`. Gepusht wird mit `git push -u origin <branch>`. Beim ersten Push öffnet der Git Credential Manager das Fenster „Connect to GitHub“, und Nico meldet sich im Browser an. Vorher Bescheid sagen.
-- Pull Requests nicht mit `gh pr create` öffnen, sondern Nico den Link `https://github.com/Montimoor/RSL-Ranking/compare/main...<branch>?expand=1` geben. Er klickt dort auf „Create pull request“.
+- Pushen, PR öffnen (`gh pr create`) und Läufe starten (`gh workflow run rsl.yml -f modus=voll|kurse`) macht Claude selbst.
+- **Mergen erst nach Nicos „ok“** (`gh pr merge --merge`). Nach einem Merge, der die Rechnung ändert, einen `voll`-Lauf starten und das Ergebnis prüfen.
+- Testläufe nicht auf einem Branch starten: Der Bot committet dann Daten in den Branch, und es gibt Konflikte mit `main`.

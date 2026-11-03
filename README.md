@@ -74,7 +74,7 @@ Rufe `https://deinname.github.io/rsl-ranking/` auf. Nach dem allerersten Aktivie
 
 Am Handy im Browser öffnen und **Zum Startbildschirm hinzufügen** wählen. Die Seite verhält sich dann wie eine App und lädt die Daten beim Öffnen neu.
 
-Ab jetzt läuft alles von allein: Jeden Montag um 06:00 UTC, also 08:00 deutscher Sommerzeit und 07:00 im Winter, rechnet GitHub neu und aktualisiert die Seite.
+Ab jetzt läuft alles von allein: Montag bis Samstag um 04:23 UTC, also 06:23 deutscher Sommerzeit und 05:23 im Winter, startet GitHub den Lauf. Montags wird die Wochenrangliste neu gerechnet, Dienstag bis Samstag werden nur die Tagesschlusskurse aufgefrischt.
 
 ---
 
@@ -96,12 +96,12 @@ Ab jetzt läuft alles von allein: Jeden Montag um 06:00 UTC, also 08:00 deutsche
 
 - **Kosten:** Für öffentliche Projekte sind GitHub Actions und Pages unbegrenzt kostenlos.
 - **Ruhende Projekte:** Geplante Abläufe werden nach 60 Tagen ohne Aktivität abgeschaltet. Da jeder Montagslauf etwas speichert, passiert das hier nicht.
-- **Verzögerung:** Der Startzeitpunkt kann sich bei GitHub um einige Minuten bis Stunden verschieben. Für Wochendaten ist das ohne Bedeutung.
+- **Verzögerung:** Der Startzeitpunkt kann sich bei GitHub um einige Minuten bis Stunden verschieben. Das ist unkritisch: Das Skript verwirft angefangene Wochen- und Tageskerzen, die Rangliste enthält also nur abgeschlossene Wochen, egal wann der Lauf startet.
 - **Sichtbarkeit:** Die Seite ist für jeden erreichbar, der die Adresse kennt. Suchmaschinen werden durch `robots.txt` und ein `noindex` ferngehalten, ein Schutz gegen gezielte Zugriffe ist das aber nicht.
 
 ## Anpassen
 
-- **Andere Indizes:** In `scripts/rsl_core.py` stehen die Ticker-Listen und `INDEX_DEFS`.
+- **Andere Indizes:** In `scripts/rsl_core.py` stehen `INDEX_DEFS` mit der Online-Quelle je Index (Wikipedia bzw. Nikkei) und die festen Ersatzlisten, die greifen, wenn die Quelle ausfällt.
 - **Kaufzone:** `TOP_PCT` in `scripts/rsl_core.py`, aktuell 0.25 für die oberen 25 %.
-- **Mehr Historie:** In `.github/workflows/rsl.yml` den Aufruf zu `python scripts/build_rankings.py --weeks 104` ändern. Zwei Jahre sind das Maximum, weil so viel von Yahoo geladen wird.
+- **Mehr Historie:** In `.github/workflows/rsl.yml` den Aufruf zu `python scripts/build_rankings.py --weeks 104` ändern. Fünf Jahre sind das Maximum, weil so viel von Yahoo geladen wird (`HISTORY_PERIOD` in `scripts/build_rankings.py`).
 - **Lokal testen:** `pip install -r requirements.txt`, dann `python scripts/build_rankings.py --index DAX`. Danach im Ordner `docs` ein `python -m http.server 8000` starten und `http://localhost:8000` öffnen.
