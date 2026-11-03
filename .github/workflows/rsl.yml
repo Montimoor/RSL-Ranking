@@ -2,10 +2,12 @@ name: RSL Ranglisten
 
 on:
   schedule:
-    # Montag bis Samstag um 05:00 UTC = 06:00 deutscher Winterzeit, 07:00 Sommerzeit.
+    # Montag bis Samstag um 04:23 UTC = 05:23 deutscher Winterzeit, 06:23 Sommerzeit.
+    # Ungerade Minute, weil GitHub Laeufe zur vollen Stunde oft stundenlang verzoegert.
     # Montag: volle Rechnung mit neuer Wochenrangliste.
     # Dienstag bis Samstag: nur die Tagesschlusskurse auffrischen.
-    - cron: '0 5 * * 1-6'
+    # Angefangene Wochen- und Tageskerzen verwirft das Skript selbst, die Uhrzeit ist unkritisch.
+    - cron: '23 4 * * 1-6'
   workflow_dispatch:
     inputs:
       modus:
