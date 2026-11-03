@@ -35,11 +35,13 @@ CAGR_WEEKS = 261            # 5 Jahre in Wochen
 CAGR_MIN_WEEKS = 235        # darunter (rund 4,5 Jahre) bleibt die Spalte leer
 RETRIES = 3
 
-# Ein Indexsymbol je Markt liefert den Handelskalender. Daraus laesst sich zu
-# jeder Wochenkerze der tatsaechlich letzte Handelstag bestimmen - Yahoo datiert
-# Wochenkerzen auf den Montag, der Kurs darin ist aber der Wochenschluss.
+# Ein Indexsymbol je Liste. Es liefert den Markt-RSL und den Handelskalender:
+# Daraus laesst sich zu jeder Wochenkerze der tatsaechlich letzte Handelstag
+# bestimmen - Yahoo datiert Wochenkerzen auf den Montag, der Kurs darin ist aber
+# der Wochenschluss. Fuer den KOSPI 200 hat Yahoo keine brauchbare Reihe
+# (^KS200 liefert nur einen Wert), deshalb der KOSPI Composite.
 CALENDAR_SYMBOL = {
-    'S&P 500': '^GSPC', 'DAX': '^GDAXI', 'MDAX': '^GDAXI', 'TecDAX': '^GDAXI',
+    'S&P 500': '^GSPC', 'DAX': '^GDAXI', 'MDAX': '^MDAXI', 'TecDAX': '^TECDAX',
     'Nikkei 225': '^N225', 'KOSPI 200': '^KS11',
 }
 
@@ -291,10 +293,7 @@ _IDX_CACHE = {}
 
 
 def index_weekly(index_name):
-    """Wochenkurse des Index selbst - Grundlage fuer den Markt-RSL.
-
-    DAX, MDAX und TecDAX teilen sich ^GDAXI, deshalb ein Zwischenspeicher.
-    """
+    """Wochenkurse des Index selbst - Grundlage fuer den Markt-RSL."""
     import yfinance as yf
     sym = CALENDAR_SYMBOL.get(index_name)
     if not sym:
@@ -455,7 +454,8 @@ def build_prices(names):
     """Schreibt docs/data/prices.json mit dem letzten Tagesschlusskurs je Aktie.
 
     Reine Anzeigegroesse. Schlaegt ein Index fehl, bleiben seine bisherigen
-    Kurse aus der alten Datei erhalten.
+    Kurse aus der alten Datei erhalten. Klappen alle Indizes, wird die Datei
+    neu aufgebaut, damit Ticker, die aus einer Liste gefallen sind, verschwinden.
     """
     path = OUT / 'prices.json'
     prices = {}
@@ -466,6 +466,7 @@ def build_prices(names):
             prices = {}
 
     ok, failed = [], []
+    frisch = {}
     for name in names:
         if name not in INDEX_DEFS:
             continue
@@ -481,8 +482,8 @@ def build_prices(names):
                 col = close[t].dropna()
                 if col.empty:
                     continue
-                prices[t] = [round(float(col.iloc[-1]), 4), col.index[-1].strftime('%Y-%m-%d')]
-                tage.add(prices[t][1])
+                frisch[t] = [round(float(col.iloc[-1]), 4), col.index[-1].strftime('%Y-%m-%d')]
+                tage.add(frisch[t][1])
                 n += 1
             if n == 0:
                 raise RuntimeError("Keine Kurse in der Antwort.")
@@ -493,9 +494,13 @@ def build_prices(names):
             print(f"  FEHLER: {e}")
             failed.append(name)
 
-    if not prices:
+    if not frisch:
         print("\nKeine Kurse erhalten - prices.json bleibt unveraendert.")
         return 1
+    if failed or set(INDEX_DEFS) - set(names):
+        prices.update(frisch)   # alte Kurse der nicht abgerufenen Indizes behalten
+    else:
+        prices = frisch
 
     path.write_text(json.dumps({
         'generated': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
