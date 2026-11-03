@@ -1,7 +1,7 @@
 """
 Baut die statischen RSL-Ranglisten für die Website.
 
-Lädt zwei Jahre Wochenkurse von Yahoo Finance, berechnet RSL = Kurs / SMA(26 Wochen)
+Lädt fünf Jahre Wochenkurse von Yahoo Finance, berechnet RSL = Kurs / SMA(26 Wochen)
 und die Ränge für JEDE Woche und schreibt pro Index eine JSON-Datei nach docs/data/.
 
 Zusaetzlich wird docs/data/prices.json geschrieben: der letzte Tagesschlusskurs
@@ -48,6 +48,31 @@ CALENDAR_SYMBOL = {
 WIKI_MIN = {'S&P 500': 400, 'DAX': 35, 'MDAX': 45, 'TecDAX': 25, 'Nikkei 225': 200}
 
 
+def _tage(index):
+    """Datumsindex ohne Zeitzone und Uhrzeit, damit er sich mit 'heute' vergleichen laesst."""
+    idx = pd.DatetimeIndex(index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    return idx.normalize()
+
+
+def nur_fertige_wochen(d):
+    """Angefangene Wochenkerzen verwerfen.
+
+    Yahoo liefert waehrend der laufenden Woche schon eine Kerze mit dem bisherigen
+    Kurs. Eine Woche gilt erst ab Samstag 00:00 UTC nach ihrem Montag als
+    abgeschlossen - dann hat auch die US-Boerse den Freitag beendet.
+    """
+    heute = pd.Timestamp(datetime.now(timezone.utc).date())
+    return d[_tage(d.index) + pd.Timedelta(days=5) <= heute]
+
+
+def nur_fertige_tage(d):
+    """Die Tageskerze von heute (UTC) verwerfen - sie kann noch im Handel sein."""
+    heute = pd.Timestamp(datetime.now(timezone.utc).date())
+    return d[_tage(d.index) < heute]
+
+
 def slug(name):
     s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode()
     return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')
@@ -62,7 +87,7 @@ def download(tickers):
             d = yf.download(tickers, period=HISTORY_PERIOD, interval="1wk", auto_adjust=True,
                             progress=False, threads=True, timeout=90)
             if d is not None and not d.empty:
-                return d
+                return nur_fertige_wochen(d)
             last = "Leere Antwort von Yahoo."
         except Exception as e:
             last = str(e)
@@ -81,7 +106,7 @@ def download_daily(tickers):
             d = yf.download(tickers, period="10d", interval="1d", auto_adjust=True,
                             progress=False, threads=True, timeout=60)
             if d is not None and not d.empty:
-                return d
+                return nur_fertige_tage(d)
             last = "Leere Antwort von Yahoo."
         except Exception as e:
             last = str(e)
@@ -246,7 +271,7 @@ def index_weekly(index_name):
                         progress=False, threads=False, timeout=60)
         s = None
         if d is not None and not d.empty:
-            c = d['Close']
+            c = nur_fertige_wochen(d)['Close']
             s = (c.iloc[:, 0] if isinstance(c, pd.DataFrame) else c).dropna()
     except Exception as e:
         print(f"  Indexkurse ({sym}) nicht abrufbar: {e}")
