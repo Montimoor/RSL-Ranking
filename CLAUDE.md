@@ -28,10 +28,12 @@ Repo: https://github.com/Montimoor/RSL-Ranking · Website: https://montimoor.git
 - Kaufzone `TOP_PCT = 0.25` (obere 25 %).
 - Yahoo datiert Wochenkerzen auf den Montag. `week_end_dates()` bestimmt über ein Kalendersymbol je Markt den echten letzten Handelstag (`enddates`). Kalendersymbole: `^GSPC`, `^GDAXI` (für DAX, MDAX und TecDAX), `^N225`, `^KS11`.
 - Markt-RSL (Index / SMA26) und Marktbreite (Anteil der Aktien mit RSL > 1) dienen nur der Anzeige und fließen nicht ins Ranking ein.
-- Ticker-Quellen:
-  - **DAX, MDAX, TecDAX, Nikkei:** zuerst Wikipedia. Liegt das Ergebnis unter `WIKI_MIN` oder tritt ein Fehler auf, greift die feste Liste in `rsl_core.py`.
+- Ticker-Quellen (`fetch_tickers`): zuerst die Online-Quelle. Liegt das Ergebnis unter `WIKI_MIN` oder tritt ein Fehler auf, greift die feste Liste in `rsl_core.py` (Stand 03.11.2026, alle Ticker bei Yahoo vorhanden).
+  - **DAX, MDAX:** englische Wikipedia.
+  - **TecDAX:** deutsche Wikipedia (die englische Seite hat keine Mitgliedertabelle mehr).
+  - **KOSPI 200:** englische Wikipedia; Codes werden auf sechs Stellen aufgefüllt (`code_digits`).
+  - **Nikkei 225:** offizielle Nikkei-Seite (`list_url`, `nikkei_tickers`), da Wikipedia keine Mitglieder mehr führt. Die Seite lehnt Abrufe ohne Zertifikatsprüfung mit 403 ab.
   - **S&P 500:** Es gibt keine feste Liste, nur einen zweiten Wikipedia-Versuch (`_wiki_sp500`). Scheitert auch dieser, bleibt die alte Datei stehen.
-  - **KOSPI 200:** Es gibt keine Wikipedia-Quelle, es wird immer die feste Liste genommen.
 
 ## Lokal testen
 ```

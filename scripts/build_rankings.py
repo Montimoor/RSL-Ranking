@@ -45,7 +45,8 @@ CALENDAR_SYMBOL = {
 
 # Untergrenzen fuer den Wikipedia-Abruf. Liefert die Seite weniger, gilt der
 # Abruf als misslungen und die fest hinterlegte Liste greift.
-WIKI_MIN = {'S&P 500': 400, 'DAX': 35, 'MDAX': 45, 'TecDAX': 25, 'Nikkei 225': 200}
+WIKI_MIN = {'S&P 500': 400, 'DAX': 35, 'MDAX': 45, 'TecDAX': 25, 'Nikkei 225': 200,
+            'KOSPI 200': 180}
 
 
 def _tage(index):
@@ -150,15 +151,8 @@ def wiki_tickers(index_name):
     if not url:
         return [], {}
 
-    import urllib.request, ssl
     from io import StringIO
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (RSL-Ranking)'})
-    with urllib.request.urlopen(req, context=ctx, timeout=45) as r:
-        html = r.read().decode('utf-8', errors='replace')
-    tables = pd.read_html(StringIO(html))
+    tables = pd.read_html(StringIO(get_html(url)))
 
     # Spaltennamen sind je Seite verschieden - mehrere Schreibweisen zulassen
     tcands = [cfg.get('col_ticker'), 'Ticker', 'Ticker symbol', 'Symbol', 'Code']
@@ -171,7 +165,8 @@ def wiki_tickers(index_name):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [' '.join(str(x) for x in c if 'Unnamed' not in str(x)).strip()
                           for c in df.columns]
-        df.columns = [str(c).strip() for c in df.columns]
+        # Fussnoten wie "Symbol[9]" abschneiden
+        df.columns = [re.sub(r'\[\d+\]', '', str(c)).strip() for c in df.columns]
         tc, nc = pick(df.columns, tcands), pick(df.columns, ncands)
         if tc and nc and (best is None or len(df) > len(best[0])):
             best = (df, tc, nc, pick(df.columns, scands))
@@ -181,6 +176,7 @@ def wiki_tickers(index_name):
     df, tc, nc, sc = best
     suffix = cfg.get('suffix', '')
     repl = cfg.get('ticker_replace') or {}
+    digits = cfg.get('code_digits')
     tickers, si = [], {}
     for _, row in df.iterrows():
         raw = str(row.get(tc, '')).strip()
@@ -188,6 +184,10 @@ def wiki_tickers(index_name):
             continue
         for a, b in repl.items():
             raw = raw.replace(a, b)
+        if digits:
+            # Koreanische Codes sind sechsstellig; pandas liest sie als Zahl und
+            # verliert dabei die fuehrenden Nullen
+            raw = raw.removesuffix('.0').zfill(digits)
         # Nikkei fuehrt reine Zahlencodes, deutsche Seiten haben die Endung schon dabei
         t = raw if '.' in raw else raw + suffix
         if t in si:
@@ -195,6 +195,39 @@ def wiki_tickers(index_name):
         tickers.append(t)
         si[t] = {'name': str(row.get(nc, t)).strip(),
                  'sector': str(row.get(sc, '')).strip() if sc else ''}
+    return tickers, si
+
+
+def get_html(url):
+    """Seite als Text laden (mit normaler Zertifikatspruefung - die Nikkei-Seite
+    weist Abrufe ohne Pruefung mit 403 ab)."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (RSL-Ranking)'})
+    with urllib.request.urlopen(req, timeout=45) as r:
+        return r.read().decode('utf-8', errors='replace')
+
+
+def nikkei_tickers(index_name):
+    """Nikkei-225-Mitglieder von der offiziellen Nikkei-Seite lesen.
+
+    Die Seite hat je Branche eine Tabelle (Code, Firmenname) unter einer
+    Ueberschrift; die Ueberschrift wird als Sektor uebernommen.
+    """
+    import html as htmllib
+    cfg = INDEX_DEFS.get(index_name) or {}
+    url = cfg.get('list_url')
+    if not url:
+        return [], {}
+    page = get_html(url)
+    suffix = cfg.get('suffix', '')
+    tickers, si = [], {}
+    for teil in re.split(r'<h3[^>]*>', page)[1:]:
+        sector = htmllib.unescape(teil.split('</h3>', 1)[0]).strip()
+        for code, name in re.findall(r'<td>\s*(\d{3}[0-9A-Z])\s*</td>\s*<td>\s*([^<]+?)\s*</td>', teil):
+            t = code + suffix
+            if t not in si:
+                tickers.append(t)
+                si[t] = {'name': htmllib.unescape(name), 'sector': sector}
     return tickers, si
 
 
@@ -207,15 +240,17 @@ def fetch_tickers(index_name):
     """
     mind = WIKI_MIN.get(index_name)
     if mind:
+        quelle, holen = (('Nikkei', nikkei_tickers) if (INDEX_DEFS.get(index_name) or {}).get('list_url')
+                         else ('Wikipedia', wiki_tickers))
         try:
-            tickers, si = wiki_tickers(index_name)
+            tickers, si = holen(index_name)
             if len(tickers) >= mind:
-                print(f"  Quelle: Wikipedia ({len(tickers)} Werte)")
+                print(f"  Quelle: {quelle} ({len(tickers)} Werte)")
                 return tickers, si
-            print(f"  Wikipedia lieferte nur {len(tickers)} Werte (erwartet >= {mind})"
+            print(f"  {quelle} lieferte nur {len(tickers)} Werte (erwartet >= {mind})"
                   f" - nehme die fest hinterlegte Liste")
         except Exception as e:
-            print(f"  Wikipedia nicht erreichbar ({e}) - nehme die fest hinterlegte Liste")
+            print(f"  {quelle} nicht erreichbar ({e}) - nehme die fest hinterlegte Liste")
 
     tickers, si = fetch_index_tickers(index_name)
     print(f"  Quelle: feste Liste ({len(tickers)} Werte)")
