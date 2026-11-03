@@ -14,16 +14,17 @@ Repo: https://github.com/Montimoor/RSL-Ranking · Website: https://montimoor.git
 ## Aufbau
 | Datei | Inhalt |
 |---|---|
-| `.github/workflows/rsl.yml` | Zeitplan `cron: '23 4 * * 1-6'` (GitHub startet oft Stunden später). Montags `voll` (neue Wochenrangliste), Di–Sa `kurse` (nur Tagesschlusskurse, `--prices-only`). Manuell startbar mit `auto`/`voll`/`kurse`. Der Bot committet nur `docs/data`. |
+| `.github/workflows/rsl.yml` | Zeitplan `cron: '23 4 * * 1-6'` (GitHub startet oft Stunden später). Montags `voll` (neue Wochenrangliste), Di–Sa `kurse` (Tageskurse und Rangliste „Stand heute“, `--prices-only`). Manuell startbar mit `auto`/`voll`/`kurse`. Der Bot committet nur `docs/data`. |
 | `scripts/build_rankings.py` | Ablauf: Ticker holen → 5 Jahre Wochenkurse von yfinance (`HISTORY_PERIOD = "5y"`) → RSL → Ranglisten-JSON, Markt-RSL, Marktbreite, 5-Jahres-Rendite (`g5`), Wochenenddaten |
 | `scripts/rsl_core.py` | Aus der Desktop-Version (`rsl_gui.py`) übernommen, am 03.11.2026 auf das Nötige gekürzt: `SMA_PERIOD`, `MIN_PERIODS`, `TOP_PCT`, `INDEX_DEFS`, die festen Ersatzlisten, `fetch_index_tickers` (inkl. `_wiki_sp500`) und `ticker_name`. |
 | `docs/index.html` | Die Website, ca. 720 Zeilen, eine Datei |
-| `docs/data/` | Je Index `<slug>.json` (kurz, wird beim Öffnen geladen) und `<slug>-lang.json` (volle Historie), dazu `manifest.json` und `prices.json` |
+| `docs/data/` | Je Index `<slug>.json` (kurz, wird beim Öffnen geladen) und `<slug>-lang.json` (volle Historie), dazu `manifest.json`, `prices.json` und `heute.json` (Stand heute aller Indizes) |
 
 ## Fachlogik (Ist-Stand)
 - Wochenkurse mit `auto_adjust` (dividenden- und splitbereinigt).
 - Angefangene Kerzen werden verworfen: Eine Wochenkerze zählt erst ab Samstag 00:00 UTC nach ihrem Montag (`nur_fertige_wochen`, gilt auch für den Markt-RSL), Tageskerzen nur vor dem heutigen UTC-Datum (`nur_fertige_tage`).
 - RSL = Kurs / SMA(26 Wochen), `MIN_PERIODS = 21`.
+- **Stand heute** (`heute.json`, `tages_rangliste`): RSL = Tagesschluss / SMA(26 Wochen), die laufende Woche geht mit dem Tagesschluss ein (Tageskurse per `resample('W-FRI').last()` zu Wochen). Am Freitag nach Schluss identisch mit dem Wochen-RSL. Die Website hängt den Stand als jüngste Spalte an die Wochendaten (`mitHeute`) und zeigt ihn als Standard; ist er nicht neuer als die letzte Woche, entfällt er.
 - Wochen, in denen weniger als 50 % der Aktien einen RSL haben, werden verworfen. Gerankt wird nur bei 0 < RSL < 10.
 - Kaufzone `TOP_PCT = 0.25` (obere 25 %).
 - Yahoo datiert Wochenkerzen auf den Montag. `week_end_dates()` bestimmt über ein Kalendersymbol je Markt den echten letzten Handelstag (`enddates`). Kalender- und Markt-Index je Liste (`CALENDAR_SYMBOL`): `^GSPC`, `^GDAXI`, `^MDAXI`, `^TECDAX`, `^N225`, `^KS11` (KOSPI Composite, weil Yahoo für den KOSPI 200 keine brauchbare Reihe hat).

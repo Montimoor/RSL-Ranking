@@ -223,7 +223,7 @@ td .tk{font-weight:700}
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const S = {manifest: null, slug: null, data: null, week: -1, tab: 'rk', sort: {}, cache: {},
-           cols: null, prices: null, pricesGen: null, cur: null, long: {}};
+           cols: null, prices: null, pricesGen: null, heute: null, cur: null, long: {}};
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nf = (v, d = 0) => v == null ? '-' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
@@ -267,6 +267,33 @@ async function loadJSON(path) {
   if (!res.ok) throw new Error(path + ': ' + res.status);
   return res.json();
 }
+
+// ---------- Stand heute ----------
+// RSL zum letzten Tagesschluss: Die laufende Woche geht mit dem Tageskurs in den
+// 26-Wochen-Schnitt ein. Der Stand wird als jüngste Spalte an die Wochendaten
+// gehängt – so rechnen Rang-Δ, Kursentwicklung und Charts gegen die
+// abgeschlossenen Wochen. Ist der Tagesstand nicht neuer als die letzte Woche
+// (Wochenende, Montag früh), entfällt er.
+function mitHeute(d, slug) {
+  const h = S.heute && S.heute[slug], n = d.dates.length;
+  d.heute = -1;
+  if (!h || !n || h.date <= (d.enddates ? d.enddates[n - 1] : d.dates[n - 1])) return d;
+  d.dates.push(h.date);
+  if (d.enddates) d.enddates.push(h.date);
+  d.totals.push(h.totals);
+  if (d.market) { d.market.rsl.push(h.market.rsl); d.market.breadth.push(h.market.breadth); }
+  for (const [t, v] of Object.entries(d.tickers)) {
+    const x = h.tickers[t];
+    v.r.push(x ? x[0] : null); v.v.push(x ? x[1] : null); v.c.push(x ? x[2] : null);
+  }
+  // Aktien, die in keiner der geladenen Wochen einen Rang hatten
+  const leer = () => Array(n).fill(null);
+  for (const [t, x] of Object.entries(h.tickers)) if (!d.tickers[t])
+    d.tickers[t] = {n: t, s: '', g5: null, r: leer().concat(x[0]), v: leer().concat(x[1]), c: leer().concat(x[2])};
+  d.heute = n;
+  return d;
+}
+const istHeute = i => S.data && S.data.heute === i;
 
 // ---------- Tabelle ----------
 function table(id, cols, rows, {onRow, empty, rerender} = {}) {
@@ -396,7 +423,8 @@ function renderStats() {
   const up = rows.filter(r => r.rsl > 1).length;
   const card = (t, v, s) => `<div class="stat"><div class="t">${t}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
   $('#stats').innerHTML =
-    card('Stand', weekEnd(i) || d.dates[i], `${d.dates.length} Wochen · ${esc(d.index)}`) +
+    card('Stand', weekEnd(i) || d.dates[i], istHeute(i) ? `Tagesschluss · ${esc(d.index)}`
+      : `Wochenschluss · ${d.dates.length - (d.heute >= 0 ? 1 : 0)} Wochen · ${esc(d.index)}`) +
     card('Aktien', d.totals[i], esc(d.description)) +
     card('Kaufzone', 'Rang 1–' + z, `obere ${Math.round((d.top_pct || .25) * 100)} %`) +
     card('RSL über 1', up, `${Math.round(up / rows.length * 100)} % der Aktien`);
@@ -563,9 +591,9 @@ function renderDet() {
       <div class="kv">
         <div>Rang<b>${v.r[last]} / ${S.data.totals[last]}</b></div>
         <div>RSL<b>${nf(v.v[last], 4)}</b></div>
-        <div>Kurs (Wochenschluss)<b>${money(v.c[last])}</b><span class="faint" style="font-size:11px">${weekEnd(last) || S.data.dates[last]}</span></div>
-        ${pr ? `<div>Aktuell<b>${money(pr[0])}</b><span class="faint" style="font-size:11px">${pr[1]}</span></div>` : ''}
-        <div>Woche ab<b>${S.data.dates[last]}</b></div>
+        <div>Kurs (${istHeute(last) ? 'Tagesschluss' : 'Wochenschluss'})<b>${money(v.c[last])}</b><span class="faint" style="font-size:11px">${weekEnd(last) || S.data.dates[last]}</span></div>
+        ${pr && !istHeute(last) ? `<div>Aktuell<b>${money(pr[0])}</b><span class="faint" style="font-size:11px">${pr[1]}</span></div>` : ''}
+        ${istHeute(last) ? '' : `<div>Woche ab<b>${S.data.dates[last]}</b></div>`}
       </div>
       <div class="zone ${inZone ? 'pos' : 'neg'}">${inZone ? '✅ Kaufzone' : '⚠️ außerhalb'}</div>
     </div>
@@ -635,7 +663,7 @@ function renderAll() {
 async function selectIndex(slug) {
   S.slug = slug;
   try {
-    S.data = S.cache[slug] || (S.cache[slug] = await loadJSON('data/' + slug + '.json'));
+    S.data = S.cache[slug] || (S.cache[slug] = mitHeute(await loadJSON('data/' + slug + '.json'), slug));
   } catch (e) {
     $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Daten konnten nicht geladen werden</div><div class="s">${esc(e.message)}</div></div>`;
     return;
@@ -649,7 +677,7 @@ async function selectIndex(slug) {
 function fillWeeks() {
   const w = $('#week');
   w.innerHTML = S.data.dates.map((d, i) =>
-    `<option value="${i}">${weekEnd(i) || d}</option>`).join('');
+    `<option value="${i}">${istHeute(i) ? 'Heute ' + dm(d) + ' (Tagesschluss)' : (weekEnd(i) || d)}</option>`).join('');
   S.week = S.data.dates.length - 1;
   w.value = S.week;
   // Der Knopf verschwindet, sobald die volle Historie geladen ist
@@ -662,7 +690,7 @@ async function loadLong() {
   const btn = $('#longBtn'), slug = S.slug;
   btn.disabled = true; btn.textContent = '…';
   try {
-    const d = await loadJSON('data/' + slug + '-lang.json');
+    const d = mitHeute(await loadJSON('data/' + slug + '-lang.json'), slug);
     S.cache[slug] = d; S.long[slug] = true; S.data = d;
     fillWeeks(); renderAll();
   } catch (e) {
@@ -681,6 +709,9 @@ async function init() {
   // Tagesschlusskurse sind optional – fehlen sie, bleibt die Seite voll nutzbar.
   try { const p = await loadJSON('data/prices.json'); S.prices = p.prices || null; S.pricesGen = p.generated; }
   catch (e) { S.prices = null; }
+  // Ebenso der Stand heute – ohne ihn zeigt die Seite die letzte volle Woche.
+  try { S.heute = (await loadJSON('data/heute.json')).indices || null; }
+  catch (e) { S.heute = null; }
   try { S.manifest = await loadJSON('data/manifest.json'); }
   catch (e) { $('#stats').innerHTML = `<div class="stat" style="grid-column:1/-1"><div class="t neg">Keine Daten gefunden</div><div class="s">${esc(e.message)}</div></div>`; return; }
   const saved = localStorage.getItem('rslsite_index');
