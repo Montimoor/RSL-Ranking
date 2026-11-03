@@ -16,7 +16,7 @@ Repo: https://github.com/Montimoor/RSL-Ranking · Website: https://montimoor.git
 |---|---|
 | `.github/workflows/rsl.yml` | Zeitplan `cron: '23 4 * * 1-6'` (GitHub startet oft Stunden später). Montags `voll` (neue Wochenrangliste), Di–Sa `kurse` (nur Tagesschlusskurse, `--prices-only`). Manuell startbar mit `auto`/`voll`/`kurse`. Der Bot committet nur `docs/data`. |
 | `scripts/build_rankings.py` | Ablauf: Ticker holen → 5 Jahre Wochenkurse von yfinance (`HISTORY_PERIOD = "5y"`) → RSL → Ranglisten-JSON, Markt-RSL, Marktbreite, 5-Jahres-Rendite (`g5`), Wochenenddaten |
-| `scripts/rsl_core.py` | Aus der Desktop-Version (`rsl_gui.py`) übernommen. `build_rankings.py` nutzt davon nur `SMA_PERIOD`, `MIN_PERIODS`, `TOP_PCT`, `INDEX_DEFS`, `fetch_index_tickers` (inkl. `_wiki_sp500`) und `ticker_name`. Ungenutzt sind `RSLDatabase` (SQLite/Trades), `calculate_rsl_update`, `generate_html_report`, `SELL_THR`, `C` und `SECTOR_COLORS`. |
+| `scripts/rsl_core.py` | Aus der Desktop-Version (`rsl_gui.py`) übernommen, am 03.11.2026 auf das Nötige gekürzt: `SMA_PERIOD`, `MIN_PERIODS`, `TOP_PCT`, `INDEX_DEFS`, die festen Ersatzlisten, `fetch_index_tickers` (inkl. `_wiki_sp500`) und `ticker_name`. |
 | `docs/index.html` | Die Website, ca. 720 Zeilen, eine Datei |
 | `docs/data/` | Je Index `<slug>.json` (kurz, wird beim Öffnen geladen) und `<slug>-lang.json` (volle Historie), dazu `manifest.json` und `prices.json` |
 
@@ -26,7 +26,8 @@ Repo: https://github.com/Montimoor/RSL-Ranking · Website: https://montimoor.git
 - RSL = Kurs / SMA(26 Wochen), `MIN_PERIODS = 21`.
 - Wochen, in denen weniger als 50 % der Aktien einen RSL haben, werden verworfen. Gerankt wird nur bei 0 < RSL < 10.
 - Kaufzone `TOP_PCT = 0.25` (obere 25 %).
-- Yahoo datiert Wochenkerzen auf den Montag. `week_end_dates()` bestimmt über ein Kalendersymbol je Markt den echten letzten Handelstag (`enddates`). Kalendersymbole: `^GSPC`, `^GDAXI` (für DAX, MDAX und TecDAX), `^N225`, `^KS11`.
+- Yahoo datiert Wochenkerzen auf den Montag. `week_end_dates()` bestimmt über ein Kalendersymbol je Markt den echten letzten Handelstag (`enddates`). Kalender- und Markt-Index je Liste (`CALENDAR_SYMBOL`): `^GSPC`, `^GDAXI`, `^MDAXI`, `^TECDAX`, `^N225`, `^KS11` (KOSPI Composite, weil Yahoo für den KOSPI 200 keine brauchbare Reihe hat).
+- `prices.json` wird neu aufgebaut, wenn alle Indizes klappen; sonst bleiben die alten Kurse der fehlgeschlagenen Indizes stehen.
 - Markt-RSL (Index / SMA26) und Marktbreite (Anteil der Aktien mit RSL > 1) dienen nur der Anzeige und fließen nicht ins Ranking ein.
 - Ticker-Quellen (`fetch_tickers`): zuerst die Online-Quelle. Liegt das Ergebnis unter `WIKI_MIN` oder tritt ein Fehler auf, greift die feste Liste in `rsl_core.py` (Stand 03.11.2026, alle Ticker bei Yahoo vorhanden).
   - **DAX, MDAX:** englische Wikipedia.
